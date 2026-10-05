@@ -89,4 +89,7 @@
 #define I2C0_ENABLED 0
 #define I2C1_ENABLED 0
 
+// Trigger Deadzone: activate ZL/ZR at 50% travel (128 of 255)
+#define SWITCH_TRIGGER_THRESHOLD 128
+
 #endif

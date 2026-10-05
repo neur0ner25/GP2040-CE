@@ -55,12 +55,16 @@ bool SwitchDriver::process(Gamepad * gamepad) {
 		| (gamepad->pressedA1() ? SWITCH_MASK_HOME    : 0)
 		| (gamepad->pressedA2() ? SWITCH_MASK_CAPTURE : 0)
 	;
+#ifndef SWITCH_TRIGGER_THRESHOLD
+#define SWITCH_TRIGGER_THRESHOLD 128
+#endif
+
 	if (gamepad->hasAnalogTriggers || gamepad->hasLeftAnalogStick) {
-		if (gamepad->state.lt > 0)
+		if (gamepad->state.lt >= SWITCH_TRIGGER_THRESHOLD)
 			switchReport.buttons |= SWITCH_MASK_ZL;
 	}
 	if (gamepad->hasAnalogTriggers || gamepad->hasRightAnalogStick) {
-		if (gamepad->state.rt > 0)
+		if (gamepad->state.rt >= SWITCH_TRIGGER_THRESHOLD)
 			switchReport.buttons |= SWITCH_MASK_ZR;
 	}
 
