@@ -58,6 +58,12 @@ void Xbox360Host::update() {
         rightRumble = gamepad->auxState.haptics.rightActuator.intensity;
     }
 
+    // Diagnostic test: hold L3 + R3 (both thumbstick clicks) to force 100% vibration
+    if ((prev_report.buttons1 & XBOX_MASK_LS) && (prev_report.buttons1 & XBOX_MASK_RS)) {
+        leftRumble = 255;
+        rightRumble = 255;
+    }
+
     if (leftRumble == last_left_rumble && rightRumble == last_right_rumble) {
         return; // no change
     }

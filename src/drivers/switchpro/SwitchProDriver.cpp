@@ -526,18 +526,19 @@ void SwitchProDriver::handleFeatureReport(uint8_t switchReportID, uint8_t switch
 }
 
 void SwitchProDriver::set_report(uint8_t report_id, hid_report_type_t report_type, const uint8_t *buffer, uint16_t bufsize) {
-    if (report_type != HID_REPORT_TYPE_OUTPUT) return;
+    if (report_type != HID_REPORT_TYPE_OUTPUT && report_type != HID_REPORT_TYPE_FEATURE && report_type != 0) return;
 
     memset(report, 0x00, sizeof(report));
 
-    uint8_t switchReportID = buffer[0];
-    uint8_t switchReportSubID = buffer[1];
-    //printf("SwitchProDriver::set_report Rpt: %02x, Type: %d, Len: %d :: SID: %02x, SSID: %02x\n", report_id, report_type, bufsize, switchReportID, switchReportSubID);
+    uint8_t switchReportID = (report_id != 0) ? report_id : buffer[0];
+    uint8_t switchReportSubID = (report_id != 0) ? buffer[0] : buffer[1];
+    const uint8_t* rumbleData = (report_id != 0) ? &buffer[1] : &buffer[2];
+    uint16_t availableLen = (report_id != 0) ? (bufsize + 1) : bufsize;
 
     // Decode HD rumble if report contains rumble data (both 0x01 and 0x10 have rumble in bytes 2..9)
-    if (bufsize >= 10 && (switchReportID == SwitchReportID::REPORT_FEATURE || switchReportID == SwitchReportID::REPORT_OUTPUT_10)) {
-        uint8_t left_intensity = isVibrationEnabled ? decode_hd_rumble(&buffer[2]) : 0;
-        uint8_t right_intensity = isVibrationEnabled ? decode_hd_rumble(&buffer[6]) : 0;
+    if (availableLen >= 10 && (switchReportID == SwitchReportID::REPORT_FEATURE || switchReportID == SwitchReportID::REPORT_OUTPUT_10)) {
+        uint8_t left_intensity = isVibrationEnabled ? decode_hd_rumble(&rumbleData[0]) : 0;
+        uint8_t right_intensity = isVibrationEnabled ? decode_hd_rumble(&rumbleData[4]) : 0;
 
         Gamepad * processedGamepad = Storage::getInstance().GetProcessedGamepad();
         if (processedGamepad != nullptr) {
@@ -552,10 +553,10 @@ void SwitchProDriver::set_report(uint8_t report_id, hid_report_type_t report_typ
     } else if (switchReportID == SwitchReportID::REPORT_OUTPUT_10) {
         // Pure rumble packet - already handled above, no response report needed
     } else if (switchReportID == SwitchReportID::REPORT_FEATURE) {
-        queuedReportID = report_id;
+        queuedReportID = (report_id != 0) ? report_id : switchReportID;
         handleFeatureReport(switchReportID, switchReportSubID, buffer, bufsize);
     } else if (switchReportID == SwitchReportID::REPORT_CONFIGURATION) {
-        queuedReportID = report_id;
+        queuedReportID = (report_id != 0) ? report_id : switchReportID;
         handleConfigReport(switchReportID, switchReportSubID, buffer, bufsize);
     } else {
         //printf("SwitchProDriver::set_report Rpt: %02x, Type: %d, Len: %d :: SID: %02x, SSID: %02x\n", report_id, report_type, bufsize, switchReportID, switchReportSubID);
