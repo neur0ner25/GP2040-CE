@@ -23,13 +23,16 @@ static inline uint8_t decode_hd_rumble(const uint8_t data[4]) {
 
     // Low frequency amplitude: byte 3 neutral base is 0x40.
     // If byte 3 > 0x40, low band amplitude is present. Range: 0x40..0x72 (0..50)
-    uint8_t lf_delta = (data[3] > 0x40) ? (data[3] - 0x40) : 0;
-
-    // Host format (SwitchProHost): amplitude passed directly in data[0]
-    uint8_t host_amp = data[0];
+    // Also bit 7 of byte 2 enables intermediate LF amplitude.
+    uint8_t lf_delta = 0;
+    if (data[3] > 0x40) {
+        lf_delta = data[3] - 0x40;
+    } else if (data[2] & 0x80) {
+        lf_delta = 1;
+    }
 
     // If all amplitudes are 0, return 0
-    if (hf_amp == 0 && lf_delta == 0 && (host_amp == 0 || host_amp == 0x40)) {
+    if (hf_amp == 0 && lf_delta == 0) {
         return 0;
     }
 
@@ -47,13 +50,7 @@ static inline uint8_t decode_hd_rumble(const uint8_t data[4]) {
         if (lf_intensity > 255) lf_intensity = 255;
     }
 
-    uint32_t host_intensity = 0;
-    if (host_amp > 0 && host_amp != 0x40) {
-        host_intensity = (static_cast<uint32_t>(host_amp) * 255) / 200;
-        if (host_intensity > 255) host_intensity = 255;
-    }
-
-    uint32_t intensity = std::max({hf_intensity, lf_intensity, host_intensity});
+    uint32_t intensity = std::max(hf_intensity, lf_intensity);
     return static_cast<uint8_t>(intensity);
 }
 
@@ -335,8 +332,9 @@ void SwitchProDriver::handleConfigReport(uint8_t switchReportID, uint8_t switchR
     if (canSend) isReportQueued = true;
 }
 
-void SwitchProDriver::handleFeatureReport(uint8_t switchReportID, uint8_t switchReportSubID, const uint8_t *reportData, uint16_t reportLength) {
-    uint8_t commandID = reportData[10];
+void SwitchProDriver::handleFeatureReport(uint8_t switchReportID, uint8_t switchReportSubID, const uint8_t *reportData, uint16_t reportLength, bool hasPrefix) {
+    const uint8_t *subcmd = hasPrefix ? (reportData + 10) : (reportData + 9);
+    uint8_t commandID = subcmd[0];
     uint32_t spiReadAddress = 0;
     uint8_t spiReadSize = 0;
     bool canSend = false;
@@ -347,6 +345,7 @@ void SwitchProDriver::handleFeatureReport(uint8_t switchReportID, uint8_t switch
     report[0] = SwitchReportID::REPORT_OUTPUT_21;
     report[1] = last_report_counter;
     memcpy(report+2,&switchReport.inputs,sizeof(SwitchInputReport));
+    report[12] = 0x09;
 
     switch (commandID) {
         case SwitchCommands::GET_CONTROLLER_STATE:
@@ -372,7 +371,7 @@ void SwitchProDriver::handleFeatureReport(uint8_t switchReportID, uint8_t switch
             break;
         case SwitchCommands::SET_MODE:
             //printf("SwitchProDriver::set_report: Rpt 0x01 SET_MODE\n");
-            inputMode = reportData[11];
+            inputMode = subcmd[1];
             report[13] = 0x80;
             report[14] = 0x03;
             report[15] = inputMode;
@@ -429,16 +428,16 @@ void SwitchProDriver::handleFeatureReport(uint8_t switchReportID, uint8_t switch
             break;
         case SwitchCommands::SPI_READ:
             //printf("SwitchProDriver::set_report: Rpt 0x01 SPI_READ\n");
-            spiReadAddress = (reportData[14] << 24) | (reportData[13] << 16) | (reportData[12] << 8) | (reportData[11]);
-            spiReadSize = reportData[15];
+            spiReadAddress = (subcmd[4] << 24) | (subcmd[3] << 16) | (subcmd[2] << 8) | (subcmd[1]);
+            spiReadSize = subcmd[5];
             //printf("Read From: 0x%08x Size %d\n", spiReadAddress, spiReadSize);
             report[13] = 0x90;
-            report[14] = reportData[10];
-            report[15] = reportData[11];
-            report[16] = reportData[12];
-            report[17] = reportData[13];
-            report[18] = reportData[14];
-            report[19] = reportData[15];
+            report[14] = subcmd[0];
+            report[15] = subcmd[1];
+            report[16] = subcmd[2];
+            report[17] = subcmd[3];
+            report[18] = subcmd[4];
+            report[19] = subcmd[5];
             readSPIFlash(&report[20], spiReadAddress, spiReadSize);
             canSend = true;
             //printf("----------------------------------------------\n");
@@ -457,7 +456,7 @@ void SwitchProDriver::handleFeatureReport(uint8_t switchReportID, uint8_t switch
             break;
         case SwitchCommands::SET_PLAYER_LIGHTS:
             //printf("SwitchProDriver::set_report: Rpt 0x01 SET_PLAYER_LIGHTS\n");
-            playerID = reportData[11];
+            playerID = subcmd[1];
             report[13] = 0x80;
             report[14] = commandID;
             canSend = true;
@@ -466,7 +465,7 @@ void SwitchProDriver::handleFeatureReport(uint8_t switchReportID, uint8_t switch
             break;
         case SwitchCommands::GET_PLAYER_LIGHTS:
             //printf("SwitchProDriver::set_report: Rpt 0x01 GET_PLAYER_LIGHTS\n");
-            playerID = reportData[11];
+            playerID = subcmd[1];
             report[13] = 0xB0;
             report[14] = commandID;
             report[15] = playerID;
@@ -492,7 +491,7 @@ void SwitchProDriver::handleFeatureReport(uint8_t switchReportID, uint8_t switch
             break;
         case SwitchCommands::TOGGLE_IMU:
             //printf("SwitchProDriver::set_report: Rpt 0x01 TOGGLE_IMU\n");
-            isIMUEnabled = reportData[11];
+            isIMUEnabled = subcmd[1];
             report[13] = 0x80;
             report[14] = commandID;
             report[15] = 0x00;
@@ -508,7 +507,7 @@ void SwitchProDriver::handleFeatureReport(uint8_t switchReportID, uint8_t switch
             break;
         case SwitchCommands::ENABLE_VIBRATION:
             //printf("SwitchProDriver::set_report: Rpt 0x01 ENABLE_VIBRATION\n");
-            isVibrationEnabled = true;
+            isVibrationEnabled = (subcmd[1] != 0);
             report[13] = 0x80;
             report[14] = commandID;
             report[15] = 0x00;
@@ -520,10 +519,10 @@ void SwitchProDriver::handleFeatureReport(uint8_t switchReportID, uint8_t switch
             //printf("SwitchProDriver::set_report: Rpt 0x01 READ_IMU\n");
             report[13] = 0xC0;
             report[14] = commandID;
-            report[15] = reportData[11];
-            report[16] = reportData[12];
+            report[15] = subcmd[1];
+            report[16] = subcmd[2];
             canSend = true;
-            //printf("IMU Addr: %02x, Size: %02x\n", reportData[11], reportData[12]);
+            //printf("IMU Addr: %02x, Size: %02x\n", subcmd[1], subcmd[2]);
             //printf("----------------------------------------------\n");
             break;
         case SwitchCommands::GET_VOLTAGE:
@@ -551,10 +550,11 @@ void SwitchProDriver::set_report(uint8_t report_id, hid_report_type_t report_typ
 
     memset(report, 0x00, sizeof(report));
 
-    uint8_t switchReportID = (report_id != 0) ? report_id : buffer[0];
-    uint8_t switchReportSubID = (report_id != 0) ? buffer[0] : buffer[1];
-    const uint8_t* rumbleData = (report_id != 0) ? &buffer[1] : &buffer[2];
-    uint16_t availableLen = (report_id != 0) ? (bufsize + 1) : bufsize;
+    bool hasPrefix = (report_id == 0);
+    uint8_t switchReportID = hasPrefix ? buffer[0] : report_id;
+    uint8_t switchReportSubID = hasPrefix ? buffer[1] : buffer[0];
+    const uint8_t* rumbleData = hasPrefix ? &buffer[2] : &buffer[1];
+    uint16_t availableLen = hasPrefix ? bufsize : (bufsize + 1);
 
     // Decode HD rumble if report contains rumble data (reports 0x01, 0x10, 0x11, 0x12)
     if (availableLen >= 10 && (switchReportID == SwitchReportID::REPORT_FEATURE || 
@@ -577,7 +577,7 @@ void SwitchProDriver::set_report(uint8_t report_id, hid_report_type_t report_typ
         // Pure rumble packet - already handled above, no response report needed
     } else if (switchReportID == SwitchReportID::REPORT_FEATURE) {
         queuedReportID = 0;
-        handleFeatureReport(switchReportID, switchReportSubID, buffer, bufsize);
+        handleFeatureReport(switchReportID, switchReportSubID, buffer, bufsize, hasPrefix);
     } else if (switchReportID == SwitchReportID::REPORT_CONFIGURATION) {
         queuedReportID = 0;
         handleConfigReport(switchReportID, switchReportSubID, buffer, bufsize);
@@ -587,20 +587,23 @@ void SwitchProDriver::set_report(uint8_t report_id, hid_report_type_t report_typ
 }
 
 void SwitchProDriver::readSPIFlash(uint8_t* dest, uint32_t address, uint8_t size) {
-    uint32_t addressBank = address & 0xFFFFFF00;
-    uint32_t addressOffset = address & 0x000000FF;
-    //printf("Address: %08x, Bank: %04x, Offset: %04x, Size: %d\n", address, addressBank, addressOffset, size);
-    std::map<uint32_t, const uint8_t*>::iterator it = spiFlashData.find(addressBank);
-
-    if (it != spiFlashData.end()) {
-        // address found
-        const uint8_t* data = it->second;
-        memcpy(dest, data+addressOffset, size);
-        //for (uint8_t i = 0; i < size; i++) printf("%02x ", dest[i]);
-        //printf("\n---\n");
+    if (address >= 0x6000 && address < 0x6000 + sizeof(factoryConfigData)) {
+        uint32_t offset = address - 0x6000;
+        uint32_t available = (sizeof(factoryConfigData) > offset) ? (sizeof(factoryConfigData) - offset) : 0;
+        uint32_t toCopy = (size < available) ? size : available;
+        memcpy(dest, factoryConfigData + offset, toCopy);
+        if (toCopy < size) {
+            memset(dest + toCopy, 0xFF, size - toCopy);
+        }
+    } else if (address >= 0x8000 && address < 0x8000 + sizeof(userCalibrationData)) {
+        uint32_t offset = address - 0x8000;
+        uint32_t available = (sizeof(userCalibrationData) > offset) ? (sizeof(userCalibrationData) - offset) : 0;
+        uint32_t toCopy = (size < available) ? size : available;
+        memcpy(dest, userCalibrationData + offset, toCopy);
+        if (toCopy < size) {
+            memset(dest + toCopy, 0xFF, size - toCopy);
+        }
     } else {
-        // could not find defined address
-        //printf("Not Found\n");
         memset(dest, 0xFF, size);
     }
 }

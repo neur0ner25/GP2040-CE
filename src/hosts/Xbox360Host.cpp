@@ -49,6 +49,7 @@ void Xbox360Host::initialize(uint8_t dev_addr, uint8_t instance, uint16_t vendor
 
 void Xbox360Host::update() {
     Gamepad * gamepad = Storage::getInstance().GetProcessedGamepad();
+    if (gamepad == nullptr) return;
 
     // rumble
     gamepad->auxState.haptics.leftActuator.enabled = 1;
@@ -79,12 +80,6 @@ void Xbox360Host::update() {
         right_rumble_until = now + 75;
     } else if (now < right_rumble_until) {
         rightRumble = sustained_right_rumble;
-    }
-
-    // Diagnostic test: hold L3 + R3 (both thumbstick clicks) to force 100% vibration
-    if ((prev_report.buttons1 & XBOX_MASK_LS) && (prev_report.buttons1 & XBOX_MASK_RS)) {
-        leftRumble = 255;
-        rightRumble = 255;
     }
 
     if (leftRumble == last_left_rumble && rightRumble == last_right_rumble) {
