@@ -10,29 +10,50 @@
 
 // Decode 4-byte Nintendo Switch HD Rumble into 0-255 vibration intensity
 static inline uint8_t decode_hd_rumble(const uint8_t data[4]) {
-    // Silence/neutral pattern (0x00, 0x01, 0x40, 0x40) or empty
-    if (data[0] == 0x00 && data[1] == 0x01 && data[2] == 0x40 && data[3] == 0x40) {
-        return 0;
-    }
-    if (data[0] == 0 && data[1] == 0 && data[2] == 0 && data[3] == 0) {
+    // Silence/neutral patterns:
+    // Standard neutral is {0x00, 0x01, 0x40, 0x40} (320Hz, 0.0 amp, 160Hz, 0.0 amp)
+    // Or all zeros
+    if ((data[0] == 0x00 && data[1] == 0x01 && data[2] == 0x40 && data[3] == 0x40) ||
+        (data[0] == 0 && data[1] == 0 && data[2] == 0 && data[3] == 0)) {
         return 0;
     }
 
     // High frequency amplitude: bits 7..1 of byte 1 (range ~0..200, 0xC8 is max)
     uint8_t hf_amp = data[1] & 0xFE;
-    uint32_t hf_intensity = (static_cast<uint32_t>(hf_amp) * 255) / 200;
-    if (hf_intensity > 255) hf_intensity = 255;
 
-    // Low frequency amplitude: bit 7 of byte 2 + byte 3 (neutral base is 0x40 = 64)
-    uint16_t lf_raw = static_cast<uint16_t>(((data[2] & 0x80) ? 0x80 : 0x00) | data[3]);
+    // Low frequency amplitude: byte 3 neutral base is 0x40.
+    // If byte 3 > 0x40, low band amplitude is present. Range: 0x40..0x72 (0..50)
+    uint8_t lf_delta = (data[3] > 0x40) ? (data[3] - 0x40) : 0;
+
+    // Host format (SwitchProHost): amplitude passed directly in data[0]
+    uint8_t host_amp = data[0];
+
+    // If all amplitudes are 0, return 0
+    if (hf_amp == 0 && lf_delta == 0 && (host_amp == 0 || host_amp == 0x40)) {
+        return 0;
+    }
+
+    // Calculate intensity with a minimum floor (~45) so physical ERM motors spin.
+    // ERM motors don't spin below ~15% power due to static friction.
+    uint32_t hf_intensity = 0;
+    if (hf_amp > 0) {
+        hf_intensity = 45 + (static_cast<uint32_t>(hf_amp) * 210) / 200;
+        if (hf_intensity > 255) hf_intensity = 255;
+    }
+
     uint32_t lf_intensity = 0;
-    if (lf_raw > 0x40) {
-        uint32_t delta = lf_raw - 0x40;
-        lf_intensity = (delta * 255) / 64;
+    if (lf_delta > 0) {
+        lf_intensity = 45 + (static_cast<uint32_t>(lf_delta) * 210) / 50;
         if (lf_intensity > 255) lf_intensity = 255;
     }
 
-    uint32_t intensity = (hf_intensity > lf_intensity) ? hf_intensity : lf_intensity;
+    uint32_t host_intensity = 0;
+    if (host_amp > 0 && host_amp != 0x40) {
+        host_intensity = (static_cast<uint32_t>(host_amp) * 255) / 200;
+        if (host_intensity > 255) host_intensity = 255;
+    }
+
+    uint32_t intensity = std::max({hf_intensity, lf_intensity, host_intensity});
     return static_cast<uint8_t>(intensity);
 }
 
@@ -184,10 +205,10 @@ bool SwitchProDriver::process(Gamepad * gamepad) {
 
     if (isReportQueued) {
         if ((now - last_report_timer) > SWITCH_PRO_KEEPALIVE_TIMER) {
-            if (tud_hid_ready() && sendReport(queuedReportID, report, 64) == true ) {
+            if (tud_hid_ready() && sendReport(0, report, 64) == true ) {
+                isReportQueued = false;
+                last_report_timer = now;
             }
-            isReportQueued = false;
-            last_report_timer = now;
         }
         reportSent = true;
     }
@@ -487,7 +508,7 @@ void SwitchProDriver::handleFeatureReport(uint8_t switchReportID, uint8_t switch
             break;
         case SwitchCommands::ENABLE_VIBRATION:
             //printf("SwitchProDriver::set_report: Rpt 0x01 ENABLE_VIBRATION\n");
-            isVibrationEnabled = reportData[11];
+            isVibrationEnabled = true;
             report[13] = 0x80;
             report[14] = commandID;
             report[15] = 0x00;
@@ -535,10 +556,12 @@ void SwitchProDriver::set_report(uint8_t report_id, hid_report_type_t report_typ
     const uint8_t* rumbleData = (report_id != 0) ? &buffer[1] : &buffer[2];
     uint16_t availableLen = (report_id != 0) ? (bufsize + 1) : bufsize;
 
-    // Decode HD rumble if report contains rumble data (both 0x01 and 0x10 have rumble in bytes 2..9)
-    if (availableLen >= 10 && (switchReportID == SwitchReportID::REPORT_FEATURE || switchReportID == SwitchReportID::REPORT_OUTPUT_10)) {
-        uint8_t left_intensity = isVibrationEnabled ? decode_hd_rumble(&rumbleData[0]) : 0;
-        uint8_t right_intensity = isVibrationEnabled ? decode_hd_rumble(&rumbleData[4]) : 0;
+    // Decode HD rumble if report contains rumble data (reports 0x01, 0x10, 0x11, 0x12)
+    if (availableLen >= 10 && (switchReportID == SwitchReportID::REPORT_FEATURE || 
+                              switchReportID == SwitchReportID::REPORT_OUTPUT_10 ||
+                              switchReportID == 0x11 || switchReportID == 0x12)) {
+        uint8_t left_intensity = decode_hd_rumble(&rumbleData[0]);
+        uint8_t right_intensity = decode_hd_rumble(&rumbleData[4]);
 
         Gamepad * processedGamepad = Storage::getInstance().GetProcessedGamepad();
         if (processedGamepad != nullptr) {
@@ -553,10 +576,10 @@ void SwitchProDriver::set_report(uint8_t report_id, hid_report_type_t report_typ
     } else if (switchReportID == SwitchReportID::REPORT_OUTPUT_10) {
         // Pure rumble packet - already handled above, no response report needed
     } else if (switchReportID == SwitchReportID::REPORT_FEATURE) {
-        queuedReportID = (report_id != 0) ? report_id : switchReportID;
+        queuedReportID = 0;
         handleFeatureReport(switchReportID, switchReportSubID, buffer, bufsize);
     } else if (switchReportID == SwitchReportID::REPORT_CONFIGURATION) {
-        queuedReportID = (report_id != 0) ? report_id : switchReportID;
+        queuedReportID = 0;
         handleConfigReport(switchReportID, switchReportSubID, buffer, bufsize);
     } else {
         //printf("SwitchProDriver::set_report Rpt: %02x, Type: %d, Len: %d :: SID: %02x, SSID: %02x\n", report_id, report_type, bufsize, switchReportID, switchReportSubID);
