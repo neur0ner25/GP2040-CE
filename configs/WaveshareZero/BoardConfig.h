@@ -72,8 +72,8 @@
 #define KEY_BUTTON_A2   HID_KEY_F2            // A2     | ~      | Capture | ~        | 14     | ~      |
 #define KEY_BUTTON_FN   -1                    // Hotkey Function                                        |
 
-// Default Input Mode: Nintendo Switch
-#define DEFAULT_INPUT_MODE INPUT_MODE_SWITCH
+// Default Input Mode: Nintendo Switch Pro
+#define DEFAULT_INPUT_MODE INPUT_MODE_SWITCH_PRO
 
 // USB Host (Pico-PIO-USB) Configuration on GP28 (D+) & GP29 (D-)
 #define USB_PERIPHERAL_ENABLED 1

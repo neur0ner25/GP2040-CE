@@ -2,6 +2,39 @@
 #include "drivers/shared/driverhelper.h"
 #include "storagemanager.h"
 #include "pico/rand.h"
+#include <algorithm>
+
+#ifndef SWITCH_TRIGGER_THRESHOLD
+#define SWITCH_TRIGGER_THRESHOLD 128
+#endif
+
+// Decode 4-byte Nintendo Switch HD Rumble into 0-255 vibration intensity
+static inline uint8_t decode_hd_rumble(const uint8_t data[4]) {
+    // Silence/neutral pattern (0x00, 0x01, 0x40, 0x40) or empty
+    if (data[0] == 0x00 && data[1] == 0x01 && data[2] == 0x40 && data[3] == 0x40) {
+        return 0;
+    }
+    if (data[0] == 0 && data[1] == 0 && data[2] == 0 && data[3] == 0) {
+        return 0;
+    }
+
+    // High frequency amplitude: bits 7..1 of byte 1 (range ~0..200, 0xC8 is max)
+    uint8_t hf_amp = data[1] & 0xFE;
+    uint32_t hf_intensity = (static_cast<uint32_t>(hf_amp) * 255) / 200;
+    if (hf_intensity > 255) hf_intensity = 255;
+
+    // Low frequency amplitude: bit 7 of byte 2 + byte 3 (neutral base is 0x40 = 64)
+    uint16_t lf_raw = static_cast<uint16_t>(((data[2] & 0x80) ? 0x80 : 0x00) | data[3]);
+    uint32_t lf_intensity = 0;
+    if (lf_raw > 0x40) {
+        uint32_t delta = lf_raw - 0x40;
+        lf_intensity = (delta * 255) / 64;
+        if (lf_intensity > 255) lf_intensity = 255;
+    }
+
+    uint32_t intensity = (hf_intensity > lf_intensity) ? hf_intensity : lf_intensity;
+    return static_cast<uint8_t>(intensity);
+}
 
 // force a report to be sent every X ms
 #define SWITCH_PRO_KEEPALIVE_TIMER 5
@@ -11,6 +44,13 @@ void SwitchProDriver::initialize() {
     last_report_counter = 0;
     handshakeCounter = 0;
     isReady = false;
+    isVibrationEnabled = true;
+
+    Gamepad * processedGamepad = Storage::getInstance().GetProcessedGamepad();
+    if (processedGamepad != nullptr) {
+        processedGamepad->auxState.haptics.leftActuator.enabled = true;
+        processedGamepad->auxState.haptics.rightActuator.enabled = true;
+    }
 
     deviceInfo = {
         .majorVersion = 0x04,
@@ -110,7 +150,7 @@ bool SwitchProDriver::process(Gamepad * gamepad) {
     switchReport.inputs.buttonR = gamepad->pressedR1();
     switchReport.inputs.buttonZR = gamepad->pressedR2();
     if (gamepad->hasAnalogTriggers || gamepad->hasRightAnalogStick)
-        switchReport.inputs.buttonZR |= gamepad->state.rt > 0;
+        switchReport.inputs.buttonZR |= (gamepad->state.rt >= SWITCH_TRIGGER_THRESHOLD);
     switchReport.inputs.buttonMinus = gamepad->pressedS1();
     switchReport.inputs.buttonPlus = gamepad->pressedS2();
     switchReport.inputs.buttonThumbR = gamepad->pressedR3();
@@ -122,7 +162,7 @@ bool SwitchProDriver::process(Gamepad * gamepad) {
     switchReport.inputs.buttonL = gamepad->pressedL1();
     switchReport.inputs.buttonZL = gamepad->pressedL2();
     if (gamepad->hasAnalogTriggers || gamepad->hasLeftAnalogStick)
-        switchReport.inputs.buttonZL |= gamepad->state.lt > 0;
+        switchReport.inputs.buttonZL |= (gamepad->state.lt >= SWITCH_TRIGGER_THRESHOLD);
 
     // analog
     uint16_t scaleLeftStickX = scale16To12(gamepad->state.lx);
@@ -488,12 +528,29 @@ void SwitchProDriver::handleFeatureReport(uint8_t switchReportID, uint8_t switch
 void SwitchProDriver::set_report(uint8_t report_id, hid_report_type_t report_type, const uint8_t *buffer, uint16_t bufsize) {
     if (report_type != HID_REPORT_TYPE_OUTPUT) return;
 
-    memset(report, 0x00, bufsize);
+    memset(report, 0x00, sizeof(report));
 
     uint8_t switchReportID = buffer[0];
     uint8_t switchReportSubID = buffer[1];
     //printf("SwitchProDriver::set_report Rpt: %02x, Type: %d, Len: %d :: SID: %02x, SSID: %02x\n", report_id, report_type, bufsize, switchReportID, switchReportSubID);
+
+    // Decode HD rumble if report contains rumble data (both 0x01 and 0x10 have rumble in bytes 2..9)
+    if (bufsize >= 10 && (switchReportID == SwitchReportID::REPORT_FEATURE || switchReportID == SwitchReportID::REPORT_OUTPUT_10)) {
+        uint8_t left_intensity = isVibrationEnabled ? decode_hd_rumble(&buffer[2]) : 0;
+        uint8_t right_intensity = isVibrationEnabled ? decode_hd_rumble(&buffer[6]) : 0;
+
+        Gamepad * processedGamepad = Storage::getInstance().GetProcessedGamepad();
+        if (processedGamepad != nullptr) {
+            processedGamepad->auxState.haptics.leftActuator.active = (left_intensity > 0);
+            processedGamepad->auxState.haptics.leftActuator.intensity = left_intensity;
+            processedGamepad->auxState.haptics.rightActuator.active = (right_intensity > 0);
+            processedGamepad->auxState.haptics.rightActuator.intensity = right_intensity;
+        }
+    }
+
     if (switchReportID == SwitchReportID::REPORT_OUTPUT_00) {
+    } else if (switchReportID == SwitchReportID::REPORT_OUTPUT_10) {
+        // Pure rumble packet - already handled above, no response report needed
     } else if (switchReportID == SwitchReportID::REPORT_FEATURE) {
         queuedReportID = report_id;
         handleFeatureReport(switchReportID, switchReportSubID, buffer, bufsize);
