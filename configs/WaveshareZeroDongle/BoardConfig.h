@@ -9,7 +9,7 @@
 #include "enums.pb.h"
 #include "class/hid/hid.h"
 
-#define BOARD_CONFIG_LABEL "Waveshare Zero"
+#define BOARD_CONFIG_LABEL "Waveshare Zero Dongle"
 
 // Main pin mapping Configuration
 //                                                  // GP2040 | Xinput | Switch  | PS3/4/5  | Dinput | Arcade |
@@ -31,6 +31,10 @@
 #define GPIO_PIN_27 GpioAction::BUTTON_PRESS_R3     // R3     | RS     | RS      | R3       | 12     | RS     |
 #define GPIO_PIN_14 GpioAction::BUTTON_PRESS_A1     // A1     | Guide  | Home    | PS       | 13     | ~      |
 #define GPIO_PIN_15 GpioAction::BUTTON_PRESS_A2     // A2     | ~      | Capture | ~        | 14     | ~      |
+
+// Setting GPIO pins to assigned by add-on
+#define GPIO_PIN_28 GpioAction::ASSIGNED_TO_ADDON
+#define GPIO_PIN_29 GpioAction::ASSIGNED_TO_ADDON
 
 #define BOARD_LEDS_PIN 16
 #define LED_BRIGHTNESS_MAXIMUM 50
@@ -67,5 +71,28 @@
 #define KEY_BUTTON_A1   HID_KEY_9             // A1     | Guide  | Home    | PS       | 13     | ~      |
 #define KEY_BUTTON_A2   HID_KEY_F2            // A2     | ~      | Capture | ~        | 14     | ~      |
 #define KEY_BUTTON_FN   -1                    // Hotkey Function                                        |
+
+// Default Input Mode: Nintendo Switch Pro
+#define DEFAULT_INPUT_MODE INPUT_MODE_SWITCH_PRO
+
+// USB Host (Pico-PIO-USB) Configuration on GP28 (D+) & GP29 (D-)
+#define USB_PERIPHERAL_ENABLED 1
+#define USB_PERIPHERAL_PIN_DPLUS 28
+#define USB_PERIPHERAL_PIN_ORDER 0
+#define USB_PERIPHERAL_PIN_5V -1
+
+// Enable Gamepad USB Host Addon for 2.4G Receiver
+#define GAMEPAD_USB_HOST_ENABLED 1
+
+// Disable unused peripherals
+#define HAS_I2C_DISPLAY 0
+#define I2C0_ENABLED 0
+#define I2C1_ENABLED 0
+
+// Trigger Deadzone: activate ZL/ZR at 50% travel (128 of 255)
+#define SWITCH_TRIGGER_THRESHOLD 128
+
+// Optional Host Stick Deadzone for Diablo 2 / analog resting drift
+#define XBOX360_HOST_STICK_DEADZONE 1500
 
 #endif
