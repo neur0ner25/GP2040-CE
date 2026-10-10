@@ -39,6 +39,7 @@
 #define BOARD_LEDS_PIN 16
 #define LED_BRIGHTNESS_MAXIMUM 5
 #define LEDS_BRIGHTNESS 5
+#define BOARD_LEDS_STATIC_COLOR_RED 1
 
 #define LIGHT_DATA_NAME_DEFAULT "Onboard LED"
 #define LIGHT_DATA_SIZE_DEFAULT 1
@@ -47,9 +48,12 @@
 
 // LED Profile 0
 #define LEDS_PROFILE0_ENABLED 1
-#define LEDS_PROFILE0_BASE_ANIMATION_INDEX AnimationNonPressedEffects::AnimationNonPressedEffects_EFFECT_RAINBOW_ROTATE
+#define LEDS_PROFILE0_BASE_ANIMATION_INDEX AnimationNonPressedEffects::AnimationNonPressedEffects_EFFECT_STATIC_COLOR
 #define LEDS_PROFILE0_PRESSED_ANIMATION_INDEX AnimationPressedEffects::AnimationPressedEffects_PRESSEDEFFECT_STATIC_COLOR
-#define LEDS_PROFILE0_STATIC_COLOR_PRESSED ColorIndexWhite
+#define LEDS_PROFILE0_CASE_ANIMATION_INDEX AnimationNonPressedEffects::AnimationNonPressedEffects_EFFECT_STATIC_COLOR
+#define LEDS_PROFILE0_STATIC_COLOR_UNPRESSED ColorIndexRed
+#define LEDS_PROFILE0_STATIC_COLOR_PRESSED ColorIndexRed
+#define LEDS_PROFILE0_STATIC_COLOR_CASE ColorIndexRed
 
 // Keyboard Mapping Configuration
 //                                            // GP2040 | Xinput | Switch  | PS3/4/5  | Dinput | Arcade |

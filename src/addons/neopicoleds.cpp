@@ -359,6 +359,20 @@ void NeoPicoLEDAddon::process()
 	UpdatePlayerLEDs();
 	UpdateTurboLED();
 
+#if defined(BOARD_LEDS_STATIC_COLOR_RED)
+	if (turnOffWhenSuspended && get_usb_suspended()) {
+		for (int i = 0; i < ledCount; i++) {
+			frame[i] = 0;
+		}
+	} else {
+		float brightness = AnimStation.GetNormalisedBrightness();
+		uint32_t redValue = ColorRed.value(neopico.GetFormat(), brightness);
+		for (int i = 0; i < ledCount; i++) {
+			frame[i] = redValue;
+		}
+	}
+#endif
+
 	//Set led values out to the actual leds
 	neopico.SetFrame(frame);
 	neopico.Show();
