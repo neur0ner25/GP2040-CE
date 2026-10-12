@@ -288,6 +288,8 @@ void SwitchProDriver::handleConfigReport(const uint8_t *data, uint16_t dataLen) 
 }
 
 void SwitchProDriver::handleFeatureReport(const uint8_t *data, uint16_t dataLen) {
+    if (dataLen < 10) return;
+
     uint8_t commandID = data[9];
     uint32_t spiReadAddress = 0;
     uint8_t spiReadSize = 0;
@@ -335,6 +337,8 @@ void SwitchProDriver::handleFeatureReport(const uint8_t *data, uint16_t dataLen)
             canSend = true;
             break;
         case SwitchCommands::SPI_READ:
+            if (dataLen < 15 || data[14] > sizeof(report) - 20) return;
+
             spiReadAddress = (data[13] << 24) | (data[12] << 16) | (data[11] << 8) | (data[10]);
             spiReadSize = data[14];
             report[13] = 0x90;
@@ -427,7 +431,7 @@ void SwitchProDriver::handleFeatureReport(const uint8_t *data, uint16_t dataLen)
 }
 
 void SwitchProDriver::set_report(uint8_t report_id, hid_report_type_t report_type, const uint8_t *buffer, uint16_t bufsize) {
-    if (report_type != HID_REPORT_TYPE_OUTPUT && report_type != HID_REPORT_TYPE_FEATURE) return;
+    if ((report_type != HID_REPORT_TYPE_OUTPUT && report_type != HID_REPORT_TYPE_FEATURE) || bufsize < 2 || bufsize > sizeof(report)) return;
 
     uint8_t switchReportID;
     const uint8_t *data;
@@ -486,6 +490,9 @@ bool SwitchProDriver::vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb
 }
 
 const uint16_t * SwitchProDriver::get_descriptor_string_cb(uint8_t index, uint16_t langid) {
+	if (index >= TU_ARRAY_SIZE(switch_pro_string_descriptors))
+		return nullptr;
+
 	const char *value = (const char *)switch_pro_string_descriptors[index];
 	return getStringDescriptor(value, index); // getStringDescriptor returns a static array
 }
