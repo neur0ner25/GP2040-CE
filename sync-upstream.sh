@@ -10,7 +10,7 @@ echo "=================================================="
 git fetch origin main
 git checkout main
 git reset --hard origin/main
-git push fork main
+git push --force-with-lease fork main
 
 echo ""
 echo "=================================================="
