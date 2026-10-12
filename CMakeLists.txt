@@ -116,29 +116,8 @@ else()
   endif()
 endif()
 
-if(SKIP_WEBBUILD)
-  cmake_print_variables(SKIP_WEBBUILD)
-else()
-  message(STATUS "Not Skipping WebBuild")
-  include(${CMAKE_SOURCE_DIR}/modules/FindNodeJS.cmake)
-  include(${CMAKE_SOURCE_DIR}/modules/FindNPM.cmake)
-  if(NODEJS_FOUND AND EXISTS "${PROJECT_SOURCE_DIR}/www")
-    if(NPM_FOUND AND EXISTS "${PROJECT_SOURCE_DIR}/www/package.json")
-      execute_process(COMMAND ${NPM_EXECUTABLE} ci
-                      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/www
-                      RESULT_VARIABLE NPM_CI_RESULT)
-      if(NOT NPM_CI_RESULT EQUAL "0")
-        message(FATAL_ERROR "npm ci failed with ${NPM_CI_RESULT}")
-      endif()
-      execute_process(COMMAND ${NPM_EXECUTABLE} run build
-                      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/www
-                      RESULT_VARIABLE NPM_BUILD_RESULT)
-      if(NOT NPM_BUILD_RESULT EQUAL "0")
-        message(FATAL_ERROR "npm run build failed with ${NPM_BUILD_RESULT}")
-      endif()
-    endif()
-  endif()
-endif()
+# Web build is excluded for lightweight dedicated firmware
+set(SKIP_WEBBUILD TRUE)
 
 
 set(PICO_BOARD_HEADER_DIRS ${CMAKE_SOURCE_DIR}/configs/${GP2040_BOARDCONFIG})
@@ -199,65 +178,7 @@ src/addonmanager.cpp
 src/playerleds.cpp
 src/drivers/shared/xinput_host.cpp
 src/drivers/shared/xgip_protocol.cpp
-src/drivers/shared/xsm3/excrypt_des.c
-src/drivers/shared/xsm3/excrypt_parve.c
-src/drivers/shared/xsm3/excrypt_sha.c
-src/drivers/shared/xsm3/usbdsec.c
-src/drivers/shared/xsm3/xsm3.c
-src/drivers/astro/AstroDriver.cpp
-src/drivers/egret/EgretDriver.cpp
-src/drivers/hid/HIDDriver.cpp
-src/drivers/keyboard/KeyboardDriver.cpp
-src/drivers/mdmini/MDMiniDriver.cpp
-src/drivers/neogeo/NeoGeoDriver.cpp
-src/drivers/net/NetDriver.cpp
-src/drivers/pcengine/PCEngineDriver.cpp
-src/drivers/ps3/PS3Driver.cpp
-src/drivers/ps4/PS4Auth.cpp
-src/drivers/ps4/PS4AuthUSBListener.cpp
-src/drivers/ps4/PS4Driver.cpp
-src/drivers/p5general/P5GeneralAuth.cpp
-src/drivers/p5general/P5GeneralAuthUSBListener.cpp
-src/drivers/p5general/P5GeneralDriver.cpp
-src/drivers/psclassic/PSClassicDriver.cpp
-src/drivers/sinput/SInputDriver.cpp
-src/drivers/switch/SwitchDriver.cpp
-src/drivers/switchpro/SwitchProDriver.cpp
 src/drivers/switch2pro/Switch2ProDriver.cpp
-src/drivers/xbone/XBOneAuth.cpp
-src/drivers/xbone/XBOneAuthUSBListener.cpp
-src/drivers/xbone/XBOneDriver.cpp
-src/drivers/xboxog/xid/xid_driver.c
-src/drivers/xboxog/xid/xid_gamepad.c
-src/drivers/xboxog/xid/xid_remote.c
-src/drivers/xboxog/xid/xid_steelbattalion.c
-src/drivers/xboxog/xid/xid.c
-src/drivers/xboxog/XboxOriginalDriver.cpp
-src/drivers/xinput/XInputAuth.cpp
-src/drivers/xinput/XInputAuthUSBListener.cpp
-src/drivers/xinput/XInputDriver.cpp
-src/interfaces/i2c/i2cdevicebase.cpp
-src/interfaces/i2c/pcf8575/pcf8575.cpp
-src/interfaces/i2c/ssd1306/tiny_ssd1306.cpp
-src/display/ui/elements/GPWidget.cpp
-src/display/ui/elements/GPButton.cpp
-src/display/ui/elements/GPLever.cpp
-src/display/ui/elements/GPLabel.cpp
-src/display/ui/elements/GPMenu.cpp
-src/display/ui/elements/GPScreen.cpp
-src/display/ui/elements/GPShape.cpp
-src/display/ui/elements/GPSprite.cpp
-src/display/ui/screens/ButtonLayoutScreen.cpp
-src/display/ui/screens/ConfigScreen.cpp
-src/display/ui/screens/MainMenuScreen.cpp
-src/display/ui/screens/PinViewerScreen.cpp
-src/display/ui/screens/RestartScreen.cpp
-src/display/ui/screens/StatsScreen.cpp
-src/display/ui/screens/SplashScreen.cpp
-src/display/ui/screens/DisplaySaverScreen.cpp
-src/display/ui/screens/SystemErrorScreen.cpp
-src/display/GPGFX.cpp
-src/display/GPGFX_UI.cpp
 src/drivermanager.cpp
 src/eventmanager.cpp
 src/layoutmanager.cpp
@@ -268,37 +189,9 @@ src/usbdriver.cpp
 src/usbhostmanager.cpp
 src/config_legacy.cpp
 src/config_utils.cpp
-src/webconfig.cpp
-src/addons/analog.cpp
-src/addons/board_led.cpp
-src/addons/bootsel_button.cpp
-src/addons/focus_mode.cpp
-src/addons/he_trigger.cpp
-src/addons/buzzerspeaker.cpp
-src/addons/dualdirectional.cpp
-src/addons/keyboard_host.cpp
-src/addons/keyboard_host_listener.cpp
-src/addons/i2canalog1115.cpp
-src/addons/i2canalog1219.cpp
-src/addons/i2c_gpio_pcf8575.cpp
-src/addons/display.cpp
-src/addons/neopicoleds.cpp
-src/addons/playerleds.cpp
-src/addons/reactiveleds.cpp
-src/addons/rotaryencoder.cpp
-src/addons/reverse.cpp
-src/addons/drv8833_rumble.cpp
-src/addons/turbo.cpp
-src/addons/slider_socd.cpp
-src/addons/slider_profile.cpp
-src/addons/wiiext.cpp
-src/addons/input_macro.cpp
-src/addons/snes_input.cpp
-src/addons/tilt.cpp
-src/addons/spi_analog_ads1256.cpp
 src/addons/gamepad_usb_host.cpp
 src/addons/gamepad_usb_host_listener.cpp
-src/addons/tg16_input.cpp
+src/addons/neopicoleds.cpp
 src/animationstation/animation.cpp
 src/animationstation/animationstation.cpp
 src/animationstation/effects/burstcolor.cpp
@@ -310,12 +203,6 @@ src/animationstation/effects/rain.cpp
 src/animationstation/effects/rainbow.cpp
 src/animationstation/effects/randomcolor.cpp
 src/animationstation/effects/staticcolor.cpp
-src/hosts/DualsensePS5Host.cpp
-src/hosts/DualshockPS4Host.cpp
-src/hosts/GoogleStadioHost.cpp
-src/hosts/DrivingForceHost.cpp
-src/hosts/Ultrastik360Host.cpp
-src/hosts/SwitchProHost.cpp
 src/hosts/Xbox360Host.cpp
 ${PROTO_OUTPUT_DIR}/enums.pb.c
 ${PROTO_OUTPUT_DIR}/config.pb.c
@@ -329,6 +216,7 @@ pico_set_program_version(GP2040-CE ${GIT_REPO_VERSION})
 target_link_libraries(${PROJECT_NAME}
 pico_stdlib
 pico_bootsel_via_double_reset
+tinyusb_device
 tinyusb_host
 tinyusb_pico_pio_usb
 CRC32
@@ -338,7 +226,6 @@ ADS1219
 ADS1256
 NeoPico
 ArduinoJson
-rndis
 hardware_adc
 hardware_pwm
 PicoPeripherals

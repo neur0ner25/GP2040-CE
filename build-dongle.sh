@@ -8,6 +8,7 @@ echo "=================================================="
 echo "  Сборка прошивки WaveshareZeroDongle (GP2040-CE)"
 echo "=================================================="
 
+export PICO_SDK_PATH="${PICO_SDK_PATH:-/home/neur0ner/pico-sdk}"
 GP2040_BOARDCONFIG=WaveshareZeroDongle cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j"$(nproc)"
 
