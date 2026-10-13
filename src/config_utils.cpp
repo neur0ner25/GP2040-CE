@@ -18,20 +18,14 @@
 #include "addons/dualdirectional.h"
 #include "addons/tilt.h"
 #include "addons/focus_mode.h"
-#include "addons/i2canalog1115.h"
-#include "addons/i2canalog1219.h"
 #include "addons/display.h"
 #include "addons/keyboard_host.h"
 #include "addons/neopicoleds.h"
-#include "addons/pleds.h"
 #include "addons/reactiveleds.h"
 #include "addons/reverse.h"
 #include "addons/slider_socd.h"
 #include "addons/slider_profile.h"
-#include "addons/spi_analog_ads1256.h"
 #include "addons/turbo.h"
-#include "addons/wiiext.h"
-#include "addons/snes_input.h"
 #include "addons/input_macro.h"
 #include "addons/rotaryencoder.h"
 #include "addons/i2c_gpio_pcf8575.h"
@@ -654,13 +648,7 @@ void ConfigUtils::initUnsetPropertiesWithDefaults(Config& config)
     INIT_UNSET_PROPERTY(config.ledOptions, lightClusterDataInitialised, false);
  
     // animationOptions
-    AnimationStation& AnimStation = AnimationStation::getInstance();
-    int brightSteps = AnimStation.getBrightnessSteps(); //cache locally to avoid false positive compiler warning
-    if(LEDS_BRIGHTNESS >= 0 && LEDS_BRIGHTNESS <= brightSteps) {
-        INIT_UNSET_PROPERTY(config.animationOptions, brightness, LEDS_BRIGHTNESS);
-    } else {
-        INIT_UNSET_PROPERTY(config.animationOptions, brightness, AnimStation.getBrightnessSteps());
-    }
+    INIT_UNSET_PROPERTY(config.animationOptions, brightness, LEDS_BRIGHTNESS);
     INIT_UNSET_PROPERTY(config.animationOptions, baseProfileIndex, 0);
     INIT_UNSET_PROPERTY(config.animationOptions, autoDisableTime, LEDS_AUTO_DISABLE_TIME);
 
@@ -856,47 +844,47 @@ void ConfigUtils::initUnsetPropertiesWithDefaults(Config& config)
     INIT_UNSET_PROPERTY(config.addonOptions.profileSliderOptions, defaultProfile, SLIDER_PROFILE_DEFAULT_PROFILE);
   
     // addonOptions.analogADS1115Options
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, enabled, !!I2C_ANALOG1115_ENABLED);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel_enabled, ANALOG1115_CHANNEL_ENABLE);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel_inner_deadzone_enabled, ANALOG1115_INNER_DEADZONE_ENABLE);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel_outer_deadzone_enabled, ANALOG1115_OUTER_DEADZONE_ENABLE);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, enabled, false);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel_enabled, 0);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel_inner_deadzone_enabled, 0);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel_outer_deadzone_enabled, 0);
 
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, left_stick_deadzone_enabled, ANALOG1115_LSTICK_DEADZONE_ENABLE);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, right_stick_deadzone_enabled, ANALOG1115_RSTICK_DEADZONE_ENABLE);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, left_stick_deadzone_enabled, false);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, right_stick_deadzone_enabled, false);
 
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, leftStickDeadzone, ANALOG1115_LSTICK_DEADZONE);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, rightStickDeadzone, ANALOG1115_RSTICK_DEADZONE);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, leftStickDeadzone, 0.0f);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, rightStickDeadzone, 0.0f);
     
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel0InnerDeadzone, ANALOG1115_CHANNEL_INNER_DEADZONE);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel1InnerDeadzone, ANALOG1115_CHANNEL_INNER_DEADZONE);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel2InnerDeadzone, ANALOG1115_CHANNEL_INNER_DEADZONE);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel3InnerDeadzone, ANALOG1115_CHANNEL_INNER_DEADZONE);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel0OuterDeadzone, ANALOG1115_CHANNEL_OUTER_DEADZONE);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel1OuterDeadzone, ANALOG1115_CHANNEL_OUTER_DEADZONE);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel2OuterDeadzone, ANALOG1115_CHANNEL_OUTER_DEADZONE);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel3OuterDeadzone, ANALOG1115_CHANNEL_OUTER_DEADZONE);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel0InnerDeadzone, 5);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel1InnerDeadzone, 5);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel2InnerDeadzone, 5);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel3InnerDeadzone, 5);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel0OuterDeadzone, 95);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel1OuterDeadzone, 95);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel2OuterDeadzone, 95);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, channel3OuterDeadzone, 95);
     
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, invert_enabled, ANALOG1115_INVERT);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, autoCalibrate, ANALOG1115_AUTOCALIBRATE);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, lxChannel, ANALOG1115_LX_CHANNEL);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, lyChannel, ANALOG1115_LY_CHANNEL);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, rxChannel, ANALOG1115_RX_CHANNEL);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, ryChannel, ANALOG1115_RY_CHANNEL);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, invert_enabled, 0);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, autoCalibrate, false);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, lxChannel, 0);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, lyChannel, 1);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, rxChannel, 2);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1115Options, ryChannel, 3);
 
     // addonOptions.analogADS1219Options
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1219Options, enabled, !!I2C_ANALOG1219_ENABLED);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1219Options, deprecatedI2cBlock, (I2C_ANALOG1219_BLOCK == i2c0) ? 0 : 1)
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1219Options, deprecatedI2cSDAPin, -1);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1219Options, deprecatedI2cSCLPin, -1);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1219Options, deprecatedI2cAddress, I2C_ANALOG1219_ADDRESS);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1219Options, deprecatedI2cSpeed, I2C_ANALOG1219_SPEED);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1219Options, enabled, false);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1219Options, deprecatedI2cBlock, 0);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1219Options, deprecatedI2cSDAPin, (Pin_t)-1);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1219Options, deprecatedI2cSCLPin, (Pin_t)-1);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1219Options, deprecatedI2cAddress, 0x40);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1219Options, deprecatedI2cSpeed, 400000);
 
     // addonOptions.analogADS1256Options
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1256Options, enabled, !!SPI_ANALOG1256_ENABLED);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1256Options, spiBlock, (SPI_ANALOG1256_BLOCK == spi0) ? 0 : 1)
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1256Options, csPin, SPI_ANALOG1256_CS_PIN);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1256Options, drdyPin, SPI_ANALOG1256_DRDY_PIN);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1256Options, avdd, (ADS1256_MAX_3V * 10));
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1256Options, enabled, false);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1256Options, spiBlock, 0);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1256Options, csPin, (Pin_t)-1);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1256Options, drdyPin, (Pin_t)-1);
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1256Options, avdd, 33);
     INIT_UNSET_PROPERTY(config.addonOptions.analogADS1256Options, enableTriggers, false);
 
     INIT_UNSET_PROPERTY(config.addonOptions.dualDirectionalOptions, enabled, !!DUAL_DIRECTIONAL_ENABLED);
@@ -950,17 +938,17 @@ void ConfigUtils::initUnsetPropertiesWithDefaults(Config& config)
     INIT_UNSET_PROPERTY_BYTES(config.addonOptions.ps4Options, rsaRN, emptyByteArray);
 
     // addonOptions.wiiOptions
-    INIT_UNSET_PROPERTY(config.addonOptions.wiiOptions, enabled, WII_EXTENSION_ENABLED);
-    INIT_UNSET_PROPERTY(config.addonOptions.wiiOptions, deprecatedI2cBlock, (WII_EXTENSION_I2C_BLOCK == i2c0) ? 0 : 1);
-    INIT_UNSET_PROPERTY(config.addonOptions.wiiOptions, deprecatedI2cSDAPin, -1);
-    INIT_UNSET_PROPERTY(config.addonOptions.wiiOptions, deprecatedI2cSCLPin, -1);
-    INIT_UNSET_PROPERTY(config.addonOptions.wiiOptions, deprecatedI2cSpeed, WII_EXTENSION_I2C_SPEED);
+    INIT_UNSET_PROPERTY(config.addonOptions.wiiOptions, enabled, false);
+    INIT_UNSET_PROPERTY(config.addonOptions.wiiOptions, deprecatedI2cBlock, 0);
+    INIT_UNSET_PROPERTY(config.addonOptions.wiiOptions, deprecatedI2cSDAPin, (Pin_t)-1);
+    INIT_UNSET_PROPERTY(config.addonOptions.wiiOptions, deprecatedI2cSCLPin, (Pin_t)-1);
+    INIT_UNSET_PROPERTY(config.addonOptions.wiiOptions, deprecatedI2cSpeed, 400000);
 
     // addonOptions.snesOptions
-    INIT_UNSET_PROPERTY(config.addonOptions.snesOptions, enabled, !!SNES_PAD_ENABLED);
-    INIT_UNSET_PROPERTY(config.addonOptions.snesOptions, clockPin, SNES_PAD_CLOCK_PIN);
-    INIT_UNSET_PROPERTY(config.addonOptions.snesOptions, latchPin, SNES_PAD_LATCH_PIN);
-    INIT_UNSET_PROPERTY(config.addonOptions.snesOptions, dataPin, SNES_PAD_DATA_PIN);
+    INIT_UNSET_PROPERTY(config.addonOptions.snesOptions, enabled, false);
+    INIT_UNSET_PROPERTY(config.addonOptions.snesOptions, clockPin, (Pin_t)-1);
+    INIT_UNSET_PROPERTY(config.addonOptions.snesOptions, latchPin, (Pin_t)-1);
+    INIT_UNSET_PROPERTY(config.addonOptions.snesOptions, dataPin, (Pin_t)-1);
 
     // addonOptions.pcf8575Options
     INIT_UNSET_PROPERTY(config.addonOptions.pcf8575Options, enabled, I2C_PCF8575_ENABLED);
@@ -2316,16 +2304,9 @@ bool ConfigUtils::save(Config& config)
     // its default value.
     setHasFlags(Config_fields, &config);
 
-    // An LED preview runs on the test profile; save the user's profile instead
-    AnimationStation& animStation = AnimationStation::getInstance();
-    const int32_t activeProfileIndex = config.animationOptions.baseProfileIndex;
-    if (animStation.IsTestModeActive())
-        config.animationOptions.baseProfileIndex = animStation.GetSavedMode();
-
     // Encode the data directly into the cache of FlashPROM
     pb_ostream_t outputStream = pb_ostream_from_buffer(EEPROM.writeCache, EEPROM_SIZE_BYTES - sizeof(ConfigFooter));
     const bool encoded = pb_encode(&outputStream, Config_fields, &config);
-    config.animationOptions.baseProfileIndex = activeProfileIndex;
     if (!encoded)
     {
         return false;

@@ -77,8 +77,6 @@ void GP2040::setup() {
 
 	// Setup Add-ons
 	addons.LoadUSBAddon(new GamepadUSBHostAddon());
-
-	// Use the old method of selecting input mode via mapped button, i.e. AFTER initializing GPIO
 	// pins with the currently active profile. Calling this even if the GPIO-mapped selection is
 	// used to make sure the same gamepad and add-on initialization steps still happen;
 	BootAction altBootAction = getButtonMappedBootAction();
@@ -202,7 +200,7 @@ void GP2040::run() {
 	Gamepad * processedGamepad = Storage::getInstance().GetProcessedGamepad();
 	GamepadState prevState;
 
-	// Start the TinyUSB Device functionality
+	// Start the TinyUSB Device functionality (Switch 2 Pro)
 	const tusb_rhport_init_t dev_init = { .role = TUSB_ROLE_DEVICE, .speed = TUSB_SPEED_AUTO };
 	tusb_init(TUD_OPT_RHPORT, &dev_init);
 
@@ -216,7 +214,7 @@ void GP2040::run() {
 
 		// Debounce
 		debounceGpioGetAll();
-		// Read Gamepad
+		// Read Gamepad (clears buttons and dpad to 0)
 		gamepad->read();
 
 		checkRawState(prevState, gamepad->state);
@@ -224,7 +222,7 @@ void GP2040::run() {
 		// Process USB Host on Core0
 		USBHostManager::getInstance().process();
 
-		// Pre-Process add-ons for MPGS
+		// Pre-Process add-ons for MPGS (applies USB host inputs to gamepad state)
 		addons.PreprocessAddons();
 
 		gamepad->process(); // process through MPGS

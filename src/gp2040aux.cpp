@@ -2,13 +2,9 @@
 #include "gp2040aux.h"
 #include "gamepad.h"
 
-#include "drivermanager.h"
-#include "storagemanager.h"
-#include "usbhostmanager.h"
-
-#include "addons/neopicoleds.h"  // Add-Ons
-
-#include <iterator>
+#include "NeoPico.h"
+#include "pico/platform.h"
+#include "pico/time.h"
 
 GP2040Aux::GP2040Aux() : inputDriver(nullptr), isReady(false) {
 }
@@ -16,23 +12,17 @@ GP2040Aux::GP2040Aux() : inputDriver(nullptr), isReady(false) {
 GP2040Aux::~GP2040Aux() {
 }
 
-// GP2040Aux will always come after GP2040 setup(), so we can rely on the
-// GP2040 setup function for certain setup functions.
+static void initOnboardLed() {
+	NeoPico neopico;
+	neopico.Setup(16, 1, LED_FORMAT_GRB, pio1, 0);
+	uint32_t frame[FRAME_MAX] = { (5 << 8) }; // Static red at brightness 5
+	neopico.SetFrame(frame);
+	neopico.Show();
+}
+
 void GP2040Aux::setup() {
-	// Initialize our input driver's auxilliary functions
-	inputDriver = DriverManager::getInstance().getDriver();
-	if ( inputDriver != nullptr ) {
-		inputDriver->initializeAux();
-
-		// Check if we have a USB listener
-		USBListener * listener = inputDriver->get_usb_auth_listener();
-		if (listener != nullptr) {
-			USBHostManager::getInstance().pushListener(listener);
-		}
-	}
-
-	// Setup Add-ons (NeoPico for onboard WS2812 RGB LED on GP16)
-	addons.LoadAddon(new NeoPicoLEDAddon());
+	// 1. Static RED LED on GP16
+	initOnboardLed();
 
 	// Ready to sync Core0 and Core1
 	isReady = true;
@@ -40,13 +30,6 @@ void GP2040Aux::setup() {
 
 void GP2040Aux::run() {
 	while (1) {
-		// Pre, Process, and Post
-		addons.PreprocessAddons();
-		addons.ProcessAddons();
-
-		// Run auxiliary functions for input driver on Core1
-		if ( inputDriver != nullptr ) {
-			inputDriver->processAux();
-		}
+		sleep_ms(50);
 	}
 }

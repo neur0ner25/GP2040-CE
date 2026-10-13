@@ -153,9 +153,9 @@ set(PICO_USE_FASTEST_SUPPORTED_CLOCK 1)
 # initialize the Raspberry Pi Pico SDK
 pico_sdk_init()
 
-# Remove unused code and data
-add_compile_options(-fdata-sections -ffunction-sections)
-add_link_options(-Wl,--gc-sections)
+# Remove unused code and data with Link-Time Optimization
+add_compile_options(-fdata-sections -ffunction-sections -flto)
+add_link_options(-Wl,--gc-sections -flto -Wl,-u,__wrap_printf -Wl,-u,__wrap_puts -Wl,-u,__wrap_putchar -Wl,-u,__wrap_vprintf -Wl,-u,__wrap_getchar)
 
 add_subdirectory(lib)
 
@@ -175,7 +175,6 @@ src/gp2040aux.cpp
 src/gamepad.cpp
 src/gamepad/GamepadState.cpp
 src/addonmanager.cpp
-src/playerleds.cpp
 src/drivers/shared/xinput_host.cpp
 src/drivers/shared/xgip_protocol.cpp
 src/drivers/switch2pro/Switch2ProDriver.cpp
@@ -191,18 +190,6 @@ src/config_legacy.cpp
 src/config_utils.cpp
 src/addons/gamepad_usb_host.cpp
 src/addons/gamepad_usb_host_listener.cpp
-src/addons/neopicoleds.cpp
-src/animationstation/animation.cpp
-src/animationstation/animationstation.cpp
-src/animationstation/effects/burstcolor.cpp
-src/animationstation/effects/chase.cpp
-src/animationstation/effects/idletimeout.cpp
-src/animationstation/effects/jigglestaticcolor.cpp
-src/animationstation/effects/jiggletwostaticcolor.cpp
-src/animationstation/effects/rain.cpp
-src/animationstation/effects/rainbow.cpp
-src/animationstation/effects/randomcolor.cpp
-src/animationstation/effects/staticcolor.cpp
 src/hosts/Xbox360Host.cpp
 ${PROTO_OUTPUT_DIR}/enums.pb.c
 ${PROTO_OUTPUT_DIR}/config.pb.c
@@ -221,16 +208,11 @@ tinyusb_host
 tinyusb_pico_pio_usb
 CRC32
 FlashPROM
-ADS1115
-ADS1219
-ADS1256
 NeoPico
 ArduinoJson
 hardware_adc
 hardware_pwm
 PicoPeripherals
-WiiExtension
-SNESpad
 pico_mbedtls
 nanopb
 )
