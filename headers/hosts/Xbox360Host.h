@@ -34,6 +34,7 @@ private:
     uint8_t sustained_right_rumble;
     XInputReport prev_report;
     uint32_t last_report_ms;
+    bool is_controller_connected;
 };
 
 #endif // _XBOX360HOST_H_

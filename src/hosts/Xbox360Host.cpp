@@ -51,6 +51,7 @@ void Xbox360Host::initialize(uint8_t dev_addr, uint8_t instance, uint16_t vendor
 
     memset(&prev_report, 0, sizeof(XInputReport));
     last_report_ms = 0;
+    is_controller_connected = false;
 
     Gamepad * gamepad = Storage::getInstance().GetProcessedGamepad();
     
@@ -66,6 +67,12 @@ void Xbox360Host::initialize(uint8_t dev_addr, uint8_t instance, uint16_t vendor
 }
 
 void Xbox360Host::update() {
+    uint32_t now = to_ms_since_boot(get_absolute_time());
+    if (is_controller_connected && (now - last_report_ms > 1500)) {
+        is_controller_connected = false;
+        memset(&prev_report, 0, sizeof(XInputReport));
+    }
+
     Gamepad * gamepad = Storage::getInstance().GetProcessedGamepad();
     if (gamepad == nullptr) return;
 
@@ -80,8 +87,6 @@ void Xbox360Host::update() {
     if (gamepad->auxState.haptics.rightActuator.active) {
         rightRumble = gamepad->auxState.haptics.rightActuator.intensity;
     }
-
-    uint32_t now = to_ms_since_boot(get_absolute_time());
 
     // Pulse stretching / sustain: ERM vibration motors have mechanical inertia (40-60ms rise time).
     // HD Rumble transmits very short pulses (1-2 frames = 16-32ms). Sustain non-zero rumble for 75ms
@@ -135,11 +140,12 @@ void Xbox360Host::process(uint8_t const* report, uint16_t len) {
     memcpy(&controller_report, report, sizeof(controller_report));
 
     uint32_t now = to_ms_since_boot(get_absolute_time());
-    bool is_reconnect = (last_report_ms == 0) || ((now - last_report_ms) > 1000);
+    bool just_connected = !is_controller_connected;
+    is_controller_connected = true;
     last_report_ms = now;
 
-    if (is_reconnect) {
-        request_remote_wakeup(500);
+    if (just_connected) {
+        request_remote_wakeup(1000);
     } else if (memcmp(&prev_report, &controller_report, sizeof(XInputReport)) == 0) {
         return;
     }
