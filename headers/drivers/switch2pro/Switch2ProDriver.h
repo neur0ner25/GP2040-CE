@@ -10,6 +10,7 @@
 #include "drivers/switch2pro/Switch2ProDescriptors.h"
 
 #define SWITCH2_PRO_KEEPALIVE_MS 50
+#define SWITCH2_PRO_POLL_RATE_MS 1
 
 class Switch2ProDriver : public GPDriver {
 public:
