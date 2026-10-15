@@ -51,6 +51,7 @@ static uint8_t cmdReply[CMD_REPLY_MAX];
 static uint16_t cmdReplyLen;
 static bool cmdReplyPending;
 static bool cmdReplyInFlight;
+static uint32_t cmdReplyInFlightStart = 0;
 static bool reportsEnabled = true;
 static uint8_t playerLedMask;
 static uint32_t handshakeRumbleUntil = 0;
@@ -133,6 +134,7 @@ static void resetProtocolState() {
     cmdReplyLen = 0;
     cmdReplyPending = false;
     cmdReplyInFlight = false;
+    cmdReplyInFlightStart = 0;
     reportsEnabled = true;
     playerLedMask = 0;
     handshakeRumbleUntil = 0;
@@ -417,8 +419,7 @@ static void sendReply(uint8_t rhport) {
     if (usbd_edpt_xfer(rhport, SWITCH2_PRO_EP_BULK_IN, cmdReply, cmdReplyLen, false)) {
         cmdReplyPending = false;
         cmdReplyInFlight = true;
-    } else {
-        cmdReplyPending = false;
+        cmdReplyInFlightStart = to_ms_since_boot(get_absolute_time());
     }
 }
 
@@ -489,7 +490,7 @@ static bool switch2pro_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t re
             return true;
         case SWITCH2_PRO_EP_BULK_IN:
             cmdReplyInFlight = false;
-            if (cmdReplyPending) {
+            if (result == XFER_RESULT_SUCCESS && cmdReplyPending) {
                 sendReply(rhport);
             } else {
                 usbd_edpt_xfer(rhport, SWITCH2_PRO_EP_BULK_OUT, cmdRequest, sizeof(cmdRequest), false);
@@ -637,12 +638,32 @@ bool Switch2ProDriver::process(Gamepad * gamepad) {
     processedGamepad->auxState.playerID.ledValue = playerLedMask;
     processedGamepad->auxState.playerID.value = playerLedMask;
 
-    bool wake_needed = is_remote_wakeup_requested() ||
-                       (gamepad->state.buttons != 0) ||
-                       (gamepad->state.dpad != 0);
+    const uint32_t now = to_ms_since_boot(get_absolute_time());
 
-    if (tud_suspended() && wake_needed) {
-        tud_remote_wakeup();
+    static uint32_t lastWakeupMs = 0;
+    if (tud_suspended()) {
+        bool hasInput = is_remote_wakeup_requested() ||
+                        (gamepad->state.buttons != 0) ||
+                        (gamepad->state.dpad != 0);
+        if (hasInput && (now - lastWakeupMs > 2000)) {
+            lastWakeupMs = now;
+            tud_remote_wakeup();
+        }
+        return false;
+    }
+
+    if (cmdReplyPending && !cmdReplyInFlight) {
+        sendReply(0);
+    }
+
+    if (cmdReplyInFlight && (now - cmdReplyInFlightStart > 1000)) {
+        if (!usbd_edpt_busy(0, SWITCH2_PRO_EP_BULK_IN)) {
+            cmdReplyInFlight = false;
+        }
+    }
+
+    if (!cmdReplyInFlight && !cmdReplyPending && !usbd_edpt_busy(0, SWITCH2_PRO_EP_BULK_OUT) && tud_ready()) {
+        usbd_edpt_xfer(0, SWITCH2_PRO_EP_BULK_OUT, cmdRequest, sizeof(cmdRequest), false);
     }
 
     if (handshakeRumbleUntil != 0) {
@@ -750,7 +771,6 @@ bool Switch2ProDriver::process(Gamepad * gamepad) {
         inputReport[31] = 0x04;
         inputReport[32] = 0x10;
     }
-    const uint32_t now = to_ms_since_boot(get_absolute_time());
     const bool changed = memcmp(&inputReport[2], &lastSentState[0], sizeof(lastSentState)) != 0;
     if (!changed && (now - lastSentMs) < SWITCH2_PRO_KEEPALIVE_MS)
         return false;
