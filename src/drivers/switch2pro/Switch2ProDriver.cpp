@@ -587,14 +587,25 @@ static void loadIdentity() {
     memcpy(chargingGripData, switch2pro_charging_grip_data, sizeof(chargingGripData));
 
     memcpy(btAddressReversed, switch2pro_bt_address_reversed, sizeof(btAddressReversed));
-    for (int i = 0; i < SWITCH2_PRO_BT_RANDOM_BYTES; i++)
-        btAddressReversed[i] = get_rand_32() & 0xFF;
+    // Static persistent Bluetooth MAC for waveshare-dongle to prevent phantom controllers on reboot
+    static const uint8_t dongle_bt_addr[SWITCH2_PRO_BT_RANDOM_BYTES] = { 0x4A, 0x93, 0x2E };
+    memcpy(btAddressReversed, dongle_bt_addr, SWITCH2_PRO_BT_RANDOM_BYTES);
+
     memcpy(deviceInfo, switch2pro_device_info, sizeof(deviceInfo));
     memcpy(&deviceInfo[SWITCH2_PRO_DEVICE_INFO_BT_OFFSET], btAddressReversed, sizeof(btAddressReversed));
-    for (size_t i = 0; i < sizeof(deviceKey); i++)
-        deviceKey[i] = get_rand_32() & 0xFF;
-    for (int i = 0; i < SWITCH2_PRO_FACTORY_SERIAL_COUNT; i++)
-        factoryData[SWITCH2_PRO_FACTORY_SERIAL_DIGITS + i] = '0' + (get_rand_32() % 10);
+
+    // Static device key for waveshare-dongle
+    static const uint8_t dongle_key[sizeof(deviceKey)] = {
+        0x3A, 0x7F, 0x91, 0x24, 0xC8, 0x6E, 0x1B, 0x5D,
+        0x08, 0xF2, 0x43, 0x87, 0xE1, 0x9A, 0x55, 0x7C
+    };
+    memcpy(deviceKey, dongle_key, sizeof(deviceKey));
+
+    // Static serial number digits for waveshare-dongle: HEJ1047291038562
+    static const char dongle_serial[SWITCH2_PRO_FACTORY_SERIAL_COUNT] = {
+        '4', '7', '2', '9', '1', '0', '3', '8', '5', '6', '2'
+    };
+    memcpy(&factoryData[SWITCH2_PRO_FACTORY_SERIAL_DIGITS], dongle_serial, SWITCH2_PRO_FACTORY_SERIAL_COUNT);
     productString = switch2pro_strings[SWITCH2_PRO_STRING_PRODUCT];
     firmwareType = SWITCH2_FW_TYPE_PRO;
 

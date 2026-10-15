@@ -61,8 +61,8 @@ void SwitchProDriver::initialize() {
         .minorVersion = 0x91,
         .controllerType = SwitchControllerType::SWITCH_TYPE_PRO_CONTROLLER,
         .unknown00 = 0x02,
-        // MAC address in reverse
-        .macAddress = {0x7c, 0xbb, 0x8a, (uint8_t)(get_rand_32() % 0xff), (uint8_t)(get_rand_32() % 0xff), (uint8_t)(get_rand_32() % 0xff)},
+        // MAC address in reverse (static for waveshare-dongle)
+        .macAddress = {0x7c, 0xbb, 0x8a, 0x4a, 0x93, 0x2e},
         .unknown01 = 0x01,
         .storedColors = 0x02,
     };
