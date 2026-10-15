@@ -8,6 +8,7 @@
 #include "storagemanager.h"
 #include "mbedtls/aes.h"
 #include "pico/rand.h"
+#include "usbdriver.h"
 
 #include <string.h>
 
@@ -36,6 +37,7 @@ typedef enum {
     CMD_NFC          = 0x01,
     CMD_FLASH_MEMORY = 0x02,
     CMD_INIT         = 0x03,
+    CMD_SHUTDOWN     = 0x06,
     CMD_UNKNOWN07    = 0x07,
     CMD_CHARGE_GRIP  = 0x08,
     CMD_PLAYER_LED   = 0x09,
@@ -70,6 +72,9 @@ static bool cmdRecoveryAwaitingReset;
 static uint32_t cmdRecoveryReattachAt;
 
 static bool reportsEnabled = true;
+static uint32_t featureMask = 0x27;       // Default mask: buttons (0x01), sticks (0x02), IMU (0x04), rumble (0x20)
+static uint32_t enabledFeatures = 0x27;   // Default features enabled
+static uint8_t selectedReportId = SWITCH2_PRO_INPUT_REPORT_ID;
 static uint8_t playerLedMask;
 static uint32_t handshakeRumbleUntil = 0;
 static uint8_t btLongTermKey[16];
@@ -157,18 +162,21 @@ static void resetProtocolState() {
     cmdBulkFaulted = false;
     cmdWasSuspended = false;
     reportsEnabled = true;
+    featureMask = 0x27;
+    enabledFeatures = 0x27;
+    selectedReportId = SWITCH2_PRO_INPUT_REPORT_ID;
     playerLedMask = 0;
     handshakeRumbleUntil = 0;
     setSwitch2ProRumble(0, 0);
 }
 
-static void setReply(uint8_t command, uint8_t subcommand, const uint8_t *payload, uint16_t payloadLen) {
+static void setReply(uint8_t command, uint8_t subcommand, const uint8_t *payload, uint16_t payloadLen, uint8_t transport = CMD_TRANSPORT_USB) {
     if (payloadLen > CMD_REPLY_MAX - CMD_HEADER_LEN)
         payloadLen = CMD_REPLY_MAX - CMD_HEADER_LEN;
     memset(cmdReply, 0, CMD_HEADER_LEN);
     cmdReply[0] = command;
     cmdReply[1] = CMD_DIRECTION_REPLY;
-    cmdReply[2] = CMD_TRANSPORT_USB;
+    cmdReply[2] = transport;
     cmdReply[3] = subcommand;
     cmdReply[5] = CMD_ACK;
     if (payload != nullptr && payloadLen > 0)
@@ -185,12 +193,13 @@ static void overlayFlash(uint32_t address, uint8_t *out, uint16_t length, uint32
 }
 
 static void replyFlashRead(const uint8_t *req) {
-    uint8_t length = req[8];
-    if (length > 0x40)
-        length = 0x40;
+    const uint8_t sub = req[3];
+    uint8_t length = (sub == 0x01) ? 0x40 : req[8];
+    if (length > 0x50)
+        length = 0x50;
     uint32_t address = req[12] | (req[13] << 8) | (req[14] << 16) | ((uint32_t)req[15] << 24);
 
-    uint8_t payload[8 + 0x40];
+    uint8_t payload[8 + 0x50];
     memset(payload, 0x00, 8);
     payload[0] = length;
     memcpy(&payload[4], &req[12], 4);
@@ -215,15 +224,16 @@ static void replyFlashRead(const uint8_t *req) {
         overlayFlash(address, data, length, 0x130C0, switch2pro_flash_130c0, sizeof(switch2pro_flash_130c0));
         overlayFlash(address, data, length, 0x13100, switch2pro_flash_13100, sizeof(switch2pro_flash_13100));
     }
-    setReply(CMD_FLASH_MEMORY, req[3], payload, 8 + length);
+    setReply(CMD_FLASH_MEMORY, sub, payload, 8 + length, req[2]);
 }
 
 static void replyPairing(const uint8_t *req) {
+    const uint8_t transport = req[2];
     switch (req[3]) {
         case 0x01: {
             uint8_t payload[9] = { 0x01, 0x04, 0x01 };
             memcpy(&payload[3], btAddressReversed, 6);
-            setReply(CMD_PAIRING, req[3], payload, sizeof(payload));
+            setReply(CMD_PAIRING, req[3], payload, sizeof(payload), transport);
             break;
         }
         case 0x02: {
@@ -236,12 +246,12 @@ static void replyPairing(const uint8_t *req) {
             mbedtls_aes_setkey_enc(&aes, btLongTermKey, 128);
             mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_ENCRYPT, challenge, &payload[1]);
             mbedtls_aes_free(&aes);
-            setReply(CMD_PAIRING, req[3], payload, sizeof(payload));
+            setReply(CMD_PAIRING, req[3], payload, sizeof(payload), transport);
             break;
         }
         case 0x03: {
             uint8_t payload[1] = { 0x01 };
-            setReply(CMD_PAIRING, req[3], payload, sizeof(payload));
+            setReply(CMD_PAIRING, req[3], payload, sizeof(payload), transport);
             break;
         }
         case 0x04: {
@@ -250,11 +260,11 @@ static void replyPairing(const uint8_t *req) {
             uint8_t payload[17] = { 0x01 };
             for (int i = 0; i < 16; i++)
                 payload[1 + i] = deviceKey[15 - i];
-            setReply(CMD_PAIRING, req[3], payload, sizeof(payload));
+            setReply(CMD_PAIRING, req[3], payload, sizeof(payload), transport);
             break;
         }
         default:
-            setReply(CMD_PAIRING, req[3], nullptr, 0);
+            setReply(CMD_PAIRING, req[3], nullptr, 0, transport);
             break;
     }
 }
@@ -262,103 +272,127 @@ static void replyPairing(const uint8_t *req) {
 static void handleCommand(const uint8_t *req) {
     const uint8_t command = req[0];
     const uint8_t sub = req[3];
+    const uint8_t transport = req[2];
 
     switch (command) {
         case CMD_NFC:
             if (sub == 0x0C) {
                 const uint8_t payload[] = { 0x61, 0x12, 0x50, 0x10 };
-                setReply(command, sub, payload, sizeof(payload));
+                setReply(command, sub, payload, sizeof(payload), transport);
             } else if (sub == 0x05) {
                 uint8_t payload[61] = { 0x09, 0x00, 0x00, 0x00, 0x01, 0x01, 0x02, 0x00, 0x07 };
-                setReply(command, sub, payload, sizeof(payload));
+                setReply(command, sub, payload, sizeof(payload), transport);
             } else {
-                setReply(command, sub, nullptr, 0);
+                setReply(command, sub, nullptr, 0, transport);
             }
             break;
         case CMD_FLASH_MEMORY:
             if (sub == 0x01 || sub == 0x04) {
                 replyFlashRead(req);
             } else if (sub == 0x02) {
-                setReply(command, sub, &req[8], 8);
+                uint8_t payload[8] = { };
+                memcpy(&payload[4], &req[12], 4);
+                setReply(command, sub, payload, sizeof(payload), transport);
             } else if (sub == 0x03) {
                 const uint8_t payload[4] = { };
-                setReply(command, sub, payload, sizeof(payload));
+                setReply(command, sub, payload, sizeof(payload), transport);
             } else if (sub == 0x05) {
                 uint8_t payload[8] = { };
                 memcpy(&payload[4], &req[12], 4);
-                setReply(command, sub, payload, sizeof(payload));
+                setReply(command, sub, payload, sizeof(payload), transport);
             } else {
-                setReply(command, sub, nullptr, 0);
+                setReply(command, sub, nullptr, 0, transport);
             }
             break;
         case CMD_INIT:
-            if (sub == 0x07) {
+            if (sub == 0x03) {
+                reportsEnabled = (req[8] != 0);
+                const uint8_t payload[] = { 0x01, 0x00, 0x00, 0x00 };
+                setReply(command, sub, payload, sizeof(payload), transport);
+            } else if (sub == 0x07) {
                 for (int i = 0; i < 6; i++)
                     hostAddress[i] = req[13 - i];
                 for (int i = 0; i < 16; i++)
                     btLongTermKey[i] = req[29 - i];
-                setReply(command, sub, nullptr, 0);
+                setReply(command, sub, nullptr, 0, transport);
+            } else if (sub == 0x0A) {
+                if (req[8] == SWITCH2_PRO_INPUT_REPORT_ID || req[8] == 0x05 ||
+                    req[8] == 0x07 || req[8] == 0x08 || req[8] == 0x0A) {
+                    selectedReportId = req[8];
+                }
+                setReply(command, sub, nullptr, 0, transport);
             } else if (sub == 0x0D) {
                 reportsEnabled = true;
                 for (int i = 0; i < 6; i++)
                     hostAddress[i] = req[15 - i];
                 const uint8_t payload[] = { 0x01, 0x00, 0x00, 0x00 };
-                setReply(command, sub, payload, sizeof(payload));
+                setReply(command, sub, payload, sizeof(payload), transport);
             } else if (sub == 0x0F) {
                 const uint8_t payload[] = { 0x05, 0x00, 0x00, 0x00 };
-                setReply(command, sub, payload, sizeof(payload));
+                setReply(command, sub, payload, sizeof(payload), transport);
             } else {
-                setReply(command, sub, nullptr, 0);
+                setReply(command, sub, nullptr, 0, transport);
             }
+            break;
+        case CMD_SHUTDOWN:
+            setSwitch2ProRumble(0, 0);
+            setReply(command, sub, nullptr, 0, transport);
             break;
         case CMD_UNKNOWN07:
             if (sub == 0x01) {
                 const uint8_t payload[] = { 0x00 };
-                setReply(command, sub, payload, sizeof(payload));
+                setReply(command, sub, payload, sizeof(payload), transport);
             } else {
-                setReply(command, sub, nullptr, 0);
+                setReply(command, sub, nullptr, 0, transport);
             }
             break;
         case CMD_CHARGE_GRIP:
             if (sub == 0x01)
-                setReply(command, sub, chargingGripData, 36);
+                setReply(command, sub, chargingGripData, 36, transport);
             else if (sub == 0x03)
-                setReply(command, sub, chargingGripData, 68);
+                setReply(command, sub, chargingGripData, 68, transport);
             else
-                setReply(command, sub, nullptr, 0);
+                setReply(command, sub, nullptr, 0, transport);
             break;
-        case CMD_PLAYER_LED:
-            if (sub == 0x07) {
-                if (req[8] != 0 && req[8] != playerLedMask) {
-                    triggerHandshakeRumble();
-                }
-                playerLedMask = req[8];
+        case CMD_PLAYER_LED: {
+            uint8_t newMask = playerLedMask;
+            if (sub == 0x01) newMask = 0x01;
+            else if (sub == 0x02) newMask = 0x02;
+            else if (sub == 0x03) newMask = 0x04;
+            else if (sub == 0x04) newMask = 0x08;
+            else if (sub == 0x05) newMask = 0x0F;
+            else if (sub == 0x06) newMask = 0x00;
+            else if (sub == 0x07) newMask = req[8];
+            if (newMask != 0 && newMask != playerLedMask) {
+                triggerHandshakeRumble();
             }
-            setReply(command, sub, nullptr, 0);
+            playerLedMask = newMask;
+            setReply(command, sub, nullptr, 0, transport);
             break;
+        }
         case CMD_VIBRATION:
             if (sub == 0x02) {
                 if (req[8] == 0) {
                     setSwitch2ProRumble(0, 0);
                 }
                 const uint8_t payload[] = { req[8], 0x00, 0x00, 0x00 };
-                setReply(command, sub, payload, sizeof(payload));
+                setReply(command, sub, payload, sizeof(payload), transport);
             } else {
-                setReply(command, sub, nullptr, 0);
+                setReply(command, sub, nullptr, 0, transport);
             }
             break;
         case CMD_BATTERY:
             if (sub == 0x03) {
                 const uint8_t payload[] = { 0xA5, 0x0E, 0x00, 0x00 };
-                setReply(command, sub, payload, sizeof(payload));
+                setReply(command, sub, payload, sizeof(payload), transport);
             } else if (sub == 0x04) {
                 const uint8_t payload[] = { 0x34, 0x00, 0x83, 0x00 };
-                setReply(command, sub, payload, sizeof(payload));
+                setReply(command, sub, payload, sizeof(payload), transport);
             } else if (sub == 0x06) {
                 const uint8_t payload[] = { 0x11, 0x00, 0x00, 0x00 };
-                setReply(command, sub, payload, sizeof(payload));
+                setReply(command, sub, payload, sizeof(payload), transport);
             } else {
-                setReply(command, sub, nullptr, 0);
+                setReply(command, sub, nullptr, 0, transport);
             }
             break;
         case CMD_FEATURE:
@@ -370,38 +404,55 @@ static void handleCommand(const uint8_t *req) {
                 if (req[8] & 0x80) payload[7] = 0x01;
                 if (req[8] & 0x10) payload[8] = 0x01;
                 if (req[8] & 0x20) payload[9] = 0x03;
-                setReply(command, sub, payload, sizeof(payload));
-            } else {
-                if (sub == 0x02 && (req[8] & 0x01) && (req[8] & 0x02))
-                    reportsEnabled = true;
-                else if (sub == 0x03)
-                    reportsEnabled = false;
+                setReply(command, sub, payload, sizeof(payload), transport);
+            } else if (sub == 0x02) {
+                featureMask = req[8] | (req[9] << 8) | (req[10] << 16) | ((uint32_t)req[11] << 24);
                 const uint8_t payload[4] = { };
-                if (sub >= 0x02 && sub <= 0x05)
-                    setReply(command, sub, payload, sizeof(payload));
-                else
-                    setReply(command, sub, nullptr, 0);
+                setReply(command, sub, payload, sizeof(payload), transport);
+            } else if (sub == 0x03) {
+                featureMask &= ~(req[8] | (req[9] << 8) | (req[10] << 16) | ((uint32_t)req[11] << 24));
+                const uint8_t payload[4] = { };
+                setReply(command, sub, payload, sizeof(payload), transport);
+            } else if (sub == 0x04) {
+                const uint32_t flags = req[8] | (req[9] << 8) | (req[10] << 16) | ((uint32_t)req[11] << 24);
+                enabledFeatures |= (flags & featureMask);
+                if (enabledFeatures & 0x03)
+                    reportsEnabled = true;
+                const uint8_t payload[4] = { };
+                setReply(command, sub, payload, sizeof(payload), transport);
+            } else if (sub == 0x05) {
+                const uint32_t flags = req[8] | (req[9] << 8) | (req[10] << 16) | ((uint32_t)req[11] << 24);
+                enabledFeatures &= ~flags;
+                const uint8_t payload[4] = { };
+                setReply(command, sub, payload, sizeof(payload), transport);
+            } else if (sub == 0x06) {
+                uint8_t payload[40] = { };
+                payload[4] = 0x02;
+                payload[9] = 0x50;
+                setReply(command, sub, payload, sizeof(payload), transport);
+            } else {
+                setReply(command, sub, nullptr, 0, transport);
             }
             break;
         case CMD_FW_INFO:
             if (sub == 0x01) {
                 const uint8_t payload[] = { 0x20, 0x00, 0x00, firmwareType, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x02, 0x03, 0x00 };
-                setReply(command, sub, payload, sizeof(payload));
+                setReply(command, sub, payload, sizeof(payload), transport);
             } else {
-                setReply(command, sub, nullptr, 0);
+                setReply(command, sub, nullptr, 0, transport);
             }
             break;
         case CMD_UNKNOWN11:
             if (sub == 0x01) {
                 const uint8_t payload[] = { 0x01, 0x00, 0x00, 0x00 };
-                setReply(command, sub, payload, sizeof(payload));
+                setReply(command, sub, payload, sizeof(payload), transport);
             } else if (sub == 0x03) {
                 const uint8_t payload[] = {
                     0x01, 0x20, 0x03, 0x00, 0x00, 0x0a, 0xe8, 0x1c, 0x3b, 0x79, 0x7d, 0x8b, 0x3a, 0x0a, 0xe8,
                     0x9c, 0x42, 0x58, 0xa0, 0x0b, 0x42, 0x0a, 0xe8, 0x9c, 0x41, 0x58, 0xa0, 0x0b, 0x41 };
-                setReply(command, sub, payload, sizeof(payload));
+                setReply(command, sub, payload, sizeof(payload), transport);
             } else {
-                setReply(command, sub, nullptr, 0);
+                setReply(command, sub, nullptr, 0, transport);
             }
             break;
         case CMD_PAIRING:
@@ -412,24 +463,24 @@ static void handleCommand(const uint8_t *req) {
                 uint8_t payload[0x18] = { };
                 payload[12] = 0x7C;
                 payload[13] = 0x06;
-                setReply(command, sub, payload, sizeof(payload));
+                setReply(command, sub, payload, sizeof(payload), transport);
             } else {
-                setReply(command, sub, nullptr, 0);
+                setReply(command, sub, nullptr, 0, transport);
             }
             break;
         case CMD_UNKNOWN18:
             if (sub == 0x01) {
                 const uint8_t payload[] = { 0x00, 0x00, 0x40, 0xF0, 0x00, 0x00, 0x60, 0x00 };
-                setReply(command, sub, payload, sizeof(payload));
+                setReply(command, sub, payload, sizeof(payload), transport);
             } else if (sub == 0x03) {
                 const uint8_t payload[] = { req[8] };
-                setReply(command, sub, payload, sizeof(payload));
+                setReply(command, sub, payload, sizeof(payload), transport);
             } else {
-                setReply(command, sub, nullptr, 0);
+                setReply(command, sub, nullptr, 0, transport);
             }
             break;
         default:
-            setReply(command, sub, nullptr, 0);
+            setReply(command, sub, nullptr, 0, transport);
             break;
     }
 }
@@ -517,8 +568,7 @@ static bool switch2pro_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t re
                 return true;
 
             if (result == XFER_RESULT_SUCCESS && xferred_bytes >= 4 &&
-                cmdRequest[1] == CMD_DIRECTION_REQUEST &&
-                cmdRequest[2] == CMD_TRANSPORT_USB) {
+                cmdRequest[1] == CMD_DIRECTION_REQUEST) {
                 if (xferred_bytes < sizeof(cmdRequest))
                     memset(&cmdRequest[xferred_bytes], 0,
                            sizeof(cmdRequest) - xferred_bytes);
@@ -670,11 +720,11 @@ static void loadIdentity() {
 
 void Switch2ProDriver::initialize() {
     memset(inputReport, 0, sizeof(inputReport));
+    inputReport[1] = 0x23;
     inputReport[11] = 0x38;
     inputReport[12] = 0x00;
     inputReport[13] = 0x00;
-    inputReport[31] = 0x04;
-    inputReport[32] = 0x10;
+    inputReport[14] = 0x28;
     reportCounter = 0;
     loadIdentity();
 
@@ -713,7 +763,6 @@ bool Switch2ProDriver::process(Gamepad * gamepad) {
     static bool previousWakeInput = false;
     static bool lastWakeupValid = false;
     static uint32_t lastWakeupMs = 0;
-
     if (handshakeRumbleUntil != 0 &&
         (int32_t)(now - handshakeRumbleUntil) >= 0) {
         handshakeRumbleUntil = 0;
@@ -721,6 +770,7 @@ bool Switch2ProDriver::process(Gamepad * gamepad) {
     }
 
     const bool currentWakeInput =
+        is_remote_wakeup_requested() ||
         gamepad->state.buttons != 0 ||
         gamepad->state.dpad != 0 ||
         (gamepad->hasAnalogTriggers &&
@@ -821,26 +871,41 @@ bool Switch2ProDriver::process(Gamepad * gamepad) {
 
     if (gamepad->pressedA1()) b2 |= SWITCH2_PRO_MASK_HOME;
     if (gamepad->pressedA2()) b2 |= SWITCH2_PRO_MASK_CAPTURE;
-    if (gamepad->pressedA3()) b2 |= SWITCH2_PRO_MASK_C;
-    if (gamepad->pressedE1()) b2 |= SWITCH2_PRO_MASK_GL;
-    if (gamepad->pressedE2()) b2 |= SWITCH2_PRO_MASK_GR;
+    if (gamepad->pressedA3() || gamepad->pressedA4()) b2 |= SWITCH2_PRO_MASK_C;
+    if (gamepad->pressedE1() || gamepad->pressedE3()) b2 |= SWITCH2_PRO_MASK_GL;
+    if (gamepad->pressedE2() || gamepad->pressedE4()) b2 |= SWITCH2_PRO_MASK_GR;
     inputReport[1] = 0x23;
     inputReport[2] = b0;
     inputReport[3] = b1;
     inputReport[4] = b2;
     packStick(&inputReport[5], gamepad->state.lx, gamepad->state.ly);
     packStick(&inputReport[8], gamepad->state.rx, gamepad->state.ry);
-    inputReport[11] = 0x38;
+    inputReport[11] = (enabledFeatures & 0x20) ? 0x38 : 0x30;
+    inputReport[12] = 0x00;
+    inputReport[13] = 0x00;
 
-    uint8_t zl_analog = gamepad->hasAnalogTriggers ? gamepad->state.lt : (zl_pressed ? 0xFF : 0x00);
-    if (zl_pressed && zl_analog == 0) zl_analog = 0xFF;
-    uint8_t zr_analog = gamepad->hasAnalogTriggers ? gamepad->state.rt : (zr_pressed ? 0xFF : 0x00);
-    if (zr_pressed && zr_analog == 0) zr_analog = 0xFF;
-    inputReport[12] = zl_analog;
-    inputReport[13] = zr_analog;
+    if (enabledFeatures & 0x04) {
+        inputReport[14] = 0x28;
+        memset(&inputReport[15], 0, 40);
+        uint32_t us = to_us_since_boot(get_absolute_time());
+        inputReport[15] = us & 0xFF;
+        inputReport[16] = (us >> 8) & 0xFF;
+        inputReport[17] = (us >> 16) & 0xFF;
+        inputReport[18] = (us >> 24) & 0xFF;
+        // 3 samples of (Accel X, Y, Z, Gyro X, Y, Z), 12 bytes each:
+        // +1.0G gravity on Accel Z (0x1000 = 4096), 0 gyro drift, 0 deviation temperature
+        inputReport[23] = 0x00;
+        inputReport[24] = 0x10;
+        inputReport[35] = 0x00;
+        inputReport[36] = 0x10;
+        inputReport[47] = 0x00;
+        inputReport[48] = 0x10;
+    } else {
+        inputReport[14] = 0x00;
+        memset(&inputReport[15], 0, 40);
+    }
+    memset(&inputReport[55], 0, 8);
 
-    inputReport[31] = 0x04;
-    inputReport[32] = 0x10;
     if (joyCon2Side != 0) {
         const bool left = joyCon2Side == 1;
         uint16_t x = gamepad->state.lx;
@@ -866,7 +931,7 @@ bool Switch2ProDriver::process(Gamepad * gamepad) {
             if (gamepad->pressedS2()) j0 |= 0x40;
             if (gamepad->pressedL3() || gamepad->pressedR3()) j0 |= 0x80;
             if (gamepad->pressedA1()) j1 |= 0x01;
-            if (gamepad->pressedA3()) j1 |= 0x10;
+            if (gamepad->pressedA3() || gamepad->pressedA4()) j1 |= 0x10;
         }
         if (zl_pressed) j0 |= 0x10;
         if (zr_pressed) j0 |= 0x20;
@@ -882,20 +947,32 @@ bool Switch2ProDriver::process(Gamepad * gamepad) {
         else
             packStick(&inputReport[5], y, GAMEPAD_JOYSTICK_MAX - x);
         inputReport[11] = 0x38;
-        inputReport[12] = zl_pressed ? 0xFF : 0x00;
-        inputReport[13] = zr_pressed ? 0xFF : 0x00;
-        inputReport[31] = 0x04;
-        inputReport[32] = 0x10;
+        inputReport[12] = 0x00;
+        inputReport[13] = 0x00;
+        if (enabledFeatures & 0x04) {
+            inputReport[14] = 0x28;
+            uint32_t us = to_us_since_boot(get_absolute_time());
+            inputReport[15] = us & 0xFF;
+            inputReport[16] = (us >> 8) & 0xFF;
+            inputReport[17] = (us >> 16) & 0xFF;
+            inputReport[18] = (us >> 24) & 0xFF;
+            inputReport[23] = 0x00;
+            inputReport[24] = 0x10;
+            inputReport[35] = 0x00;
+            inputReport[36] = 0x10;
+            inputReport[47] = 0x00;
+            inputReport[48] = 0x10;
+        }
     }
     const bool changed = memcmp(&inputReport[2], &lastSentState[0], sizeof(lastSentState)) != 0;
-    if (!changed && (now - lastSentMs) < SWITCH2_PRO_KEEPALIVE_MS)
+    if (!changed && (now - lastSentMs) < SWITCH2_PRO_POLL_RATE_MS)
         return false;
     if (!tud_hid_n_ready(0))
         return false;
 
     inputReport[0] = reportCounter;
     const uint8_t reportId = joyCon2Side == 1 ? SWITCH2_JOYCON2_LEFT_INPUT_REPORT_ID
-        : joyCon2Side == 2 ? SWITCH2_JOYCON2_RIGHT_INPUT_REPORT_ID : SWITCH2_PRO_INPUT_REPORT_ID;
+        : joyCon2Side == 2 ? SWITCH2_JOYCON2_RIGHT_INPUT_REPORT_ID : selectedReportId;
     if (!tud_hid_n_report(0, reportId, inputReport, sizeof(inputReport)))
         return false;
     memcpy(lastSentState, &inputReport[2], sizeof(lastSentState));
