@@ -48,6 +48,7 @@ void Xbox360Host::initialize(uint8_t dev_addr, uint8_t instance, uint16_t vendor
     right_rumble_until = 0;
     sustained_left_rumble = 0;
     sustained_right_rumble = 0;
+    rumble_dirty = false;
 
     memset(&prev_report, 0, sizeof(XInputReport));
     last_report_ms = 0;
@@ -55,12 +56,10 @@ void Xbox360Host::initialize(uint8_t dev_addr, uint8_t instance, uint16_t vendor
 
     Gamepad * gamepad = Storage::getInstance().GetProcessedGamepad();
     
-    uint32_t quadrants = gamepad->auxState.playerID.value;
-    if (quadrants == 0)
-        quadrants = 1;
-    for (uint32_t i = 0; i < quadrants; i++) {
-        xbox360_set_led(i);
-    }
+    uint32_t quadrant = gamepad->auxState.playerID.value;
+    if (quadrant == 0)
+        quadrant = 1;
+    xbox360_set_led(quadrant);
 
     xinput_set_rumble(0, 0);
     tuh_xinput_receive_report(_dev_addr, _instance);
@@ -110,13 +109,17 @@ void Xbox360Host::update() {
         rightRumble = sustained_right_rumble;
     }
 
-    if (leftRumble == last_left_rumble && rightRumble == last_right_rumble) {
+    if (!rumble_dirty && leftRumble == last_left_rumble && rightRumble == last_right_rumble) {
         return; // no change
     }
-    last_left_rumble = leftRumble;
-    last_right_rumble = rightRumble;
 
-    xinput_set_rumble(leftRumble, rightRumble);
+    if (xinput_set_rumble(leftRumble, rightRumble)) {
+        last_left_rumble = leftRumble;
+        last_right_rumble = rightRumble;
+        rumble_dirty = false;
+    } else {
+        rumble_dirty = true;
+    }
 }
 
 #ifdef XBOX360_HOST_STICK_DEADZONE
@@ -133,11 +136,9 @@ static inline int16_t apply_deadzone(int16_t val, int16_t deadzone) {
 void Xbox360Host::process(uint8_t const* report, uint16_t len) {
     XInputReport controller_report;
 
-   
-
-    if (len < sizeof(XInputReport)) {
+    if (len < sizeof(XInputReport) || report[0] != 0x00 || report[1] != sizeof(XInputReport)) {
 #ifdef GAMEPAD_HOST_DEBUG
-        printf("Xbox 360 report too small: %d bytes\n", len);
+        printf("Xbox 360 report invalid or non-input packet: %d bytes\n", len);
 #endif
         return;
     }
@@ -149,14 +150,18 @@ void Xbox360Host::process(uint8_t const* report, uint16_t len) {
     is_controller_connected = true;
     last_report_ms = now;
 
+    bool hasInput = (controller_report.buttons1 != 0 || controller_report.buttons2 != 0 ||
+                     controller_report.lt > 0 || controller_report.rt > 0);
+
     if (just_connected) {
-        request_remote_wakeup(1000);
+        if (hasInput) {
+            request_remote_wakeup(1000);
+        }
     } else if (memcmp(&prev_report, &controller_report, sizeof(XInputReport)) == 0) {
         return;
     }
 
-    if (controller_report.buttons1 != 0 || controller_report.buttons2 != 0 ||
-        controller_report.lt > 0 || controller_report.rt > 0) {
+    if (hasInput) {
         request_remote_wakeup(200);
     }
 
@@ -236,9 +241,9 @@ void Xbox360Host::xbox360_set_led(uint8_t quadrant) {
     tuh_xinput_send_report(_dev_addr, _instance, out, sizeof(XBOX360_WIRED_LED));
 }
 
-void Xbox360Host::xinput_set_rumble(uint8_t left, uint8_t right) {
+bool Xbox360Host::xinput_set_rumble(uint8_t left, uint8_t right) {
     if (!tuh_xinput_mounted(_dev_addr, _instance))
-        return;
+        return false;
 
     uint8_t out[32];
     memset(out, 0, 32);
@@ -246,8 +251,5 @@ void Xbox360Host::xinput_set_rumble(uint8_t left, uint8_t right) {
     memcpy(out, XBOX360_WIRED_RUMBLE, sizeof(XBOX360_WIRED_RUMBLE));
     out[3] = left;
     out[4] = right;
-    if (!tuh_xinput_send_report(_dev_addr, _instance, out, len)) {
-        last_left_rumble = 0xFF;
-        last_right_rumble = 0xFF;
-    }
+    return tuh_xinput_send_report(_dev_addr, _instance, out, len);
 }
