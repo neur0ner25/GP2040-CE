@@ -76,6 +76,8 @@ void Xbox360Host::update() {
     Gamepad * gamepad = Storage::getInstance().GetProcessedGamepad();
     if (gamepad == nullptr) return;
 
+    const uint32_t now = to_ms_since_boot(get_absolute_time());
+
     // rumble
     gamepad->auxState.haptics.leftActuator.enabled = 1;
     gamepad->auxState.haptics.rightActuator.enabled = 1;
