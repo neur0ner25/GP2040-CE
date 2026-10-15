@@ -171,10 +171,10 @@ bool SwitchProDriver::process(Gamepad * gamepad) {
 
     if (isReportQueued) {
         if ((now - last_report_timer) > SWITCH_PRO_KEEPALIVE_TIMER) {
-            if (tud_hid_ready() && sendReport(0, report, 64) == true ) {
+            if (tud_hid_ready() && sendReport(0, report, 64) == true) {
+                isReportQueued = false;
+                last_report_timer = now;
             }
-            isReportQueued = false;
-            last_report_timer = now;
         }
         reportSent = true;
     }
@@ -320,6 +320,7 @@ void SwitchProDriver::handleFeatureReport(const uint8_t *data, uint16_t dataLen)
             canSend = true;
             break;
         case SwitchCommands::SET_MODE:
+            if (dataLen < 11) return;
             inputMode = data[10];
             report[13] = 0x80;
             report[14] = 0x03;
@@ -362,12 +363,14 @@ void SwitchProDriver::handleFeatureReport(const uint8_t *data, uint16_t dataLen)
             canSend = true;
             break;
         case SwitchCommands::SET_PLAYER_LIGHTS:
+            if (dataLen < 11) return;
             playerID = data[10];
             report[13] = 0x80;
             report[14] = commandID;
             canSend = true;
             break;
         case SwitchCommands::GET_PLAYER_LIGHTS:
+            if (dataLen < 11) return;
             playerID = data[10];
             report[13] = 0xB0;
             report[14] = commandID;
@@ -387,6 +390,7 @@ void SwitchProDriver::handleFeatureReport(const uint8_t *data, uint16_t dataLen)
             canSend = true;
             break;
         case SwitchCommands::TOGGLE_IMU:
+            if (dataLen < 11) return;
             isIMUEnabled = data[10];
             report[13] = 0x80;
             report[14] = commandID;
@@ -399,13 +403,15 @@ void SwitchProDriver::handleFeatureReport(const uint8_t *data, uint16_t dataLen)
             canSend = true;
             break;
         case SwitchCommands::ENABLE_VIBRATION:
-            isVibrationEnabled = data[10];
+            if (dataLen < 11) return;
+            isVibrationEnabled = (data[10] != 0);
             report[13] = 0x80;
             report[14] = commandID;
             report[15] = 0x00;
             canSend = true;
             break;
         case SwitchCommands::READ_IMU:
+            if (dataLen < 12) return;
             report[13] = 0xC0;
             report[14] = commandID;
             report[15] = data[10];
