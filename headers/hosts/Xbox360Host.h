@@ -34,7 +34,6 @@ private:
     uint8_t sustained_right_rumble;
     bool rumble_dirty;
     XInputReport prev_report;
-    uint32_t last_report_ms;
     bool is_controller_connected;
 };
 
