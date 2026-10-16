@@ -8,7 +8,6 @@
 #include "storagemanager.h"
 #include "mbedtls/aes.h"
 #include "pico/rand.h"
-#include "usbdriver.h"
 
 #include <string.h>
 
@@ -758,26 +757,11 @@ bool Switch2ProDriver::process(Gamepad * gamepad) {
 
     const uint32_t now = to_ms_since_boot(get_absolute_time());
 
-    // These persist across suspended and nonsuspended passes. In particular,
-    // a button already held when suspend begins is not a new press.
-    static bool previousWakeInput = false;
-    static bool lastWakeupValid = false;
-    static uint32_t lastWakeupMs = 0;
     if (handshakeRumbleUntil != 0 &&
         (int32_t)(now - handshakeRumbleUntil) >= 0) {
         handshakeRumbleUntil = 0;
         setSwitch2ProRumble(0, 0);
     }
-
-    const bool currentWakeInput =
-        is_remote_wakeup_requested() ||
-        gamepad->state.buttons != 0 ||
-        gamepad->state.dpad != 0 ||
-        (gamepad->hasAnalogTriggers &&
-         (gamepad->state.lt >= SWITCH_TRIGGER_THRESHOLD ||
-          gamepad->state.rt >= SWITCH_TRIGGER_THRESHOLD));
-    const bool wakeEdge = currentWakeInput && !previousWakeInput;
-    previousWakeInput = currentWakeInput;
 
     if (cmdRecoveryDetached) {
         if ((int32_t)(now - cmdRecoveryReattachAt) >= 0) {
@@ -796,12 +780,6 @@ bool Switch2ProDriver::process(Gamepad * gamepad) {
         if (!cmdWasSuspended) {
             cmdWasSuspended = true;
             cmdSuspendedAt = now;
-        }
-        if (wakeEdge &&
-            (!lastWakeupValid || (uint32_t)(now - lastWakeupMs) >= 2000) &&
-            tud_remote_wakeup()) {
-            lastWakeupMs = now;
-            lastWakeupValid = true;
         }
         return false;
     }
