@@ -207,6 +207,17 @@ void Xbox360Host::update() {
     }
 }
 
+#ifdef XBOX360_HOST_STICK_DEADZONE
+static inline int16_t apply_deadzone(int16_t val, int16_t deadzone) {
+    if (val > deadzone) {
+        return static_cast<int16_t>(((int32_t)(val - deadzone) * 32767) / (32767 - deadzone));
+    } else if (val < -deadzone) {
+        return static_cast<int16_t>(((int32_t)(val + deadzone) * 32768) / (32768 - deadzone));
+    }
+    return 0;
+}
+#endif
+
 void Xbox360Host::process(uint8_t const* report, uint16_t len) {
     XInputReport controller_report;
 
@@ -243,6 +254,21 @@ void Xbox360Host::process(uint8_t const* report, uint16_t len) {
     if (controller_report.buttons2 & XBOX_MASK_X) _controller_host_state.buttons |= GAMEPAD_MASK_B3;
     if (controller_report.buttons2 & XBOX_MASK_Y) _controller_host_state.buttons |= GAMEPAD_MASK_B4;
 
+#ifdef XBOX360_HOST_STICK_DEADZONE
+    const int16_t DEADZONE = XBOX360_HOST_STICK_DEADZONE;
+    int16_t lx = apply_deadzone(controller_report.lx, DEADZONE);
+    int16_t ly = apply_deadzone(controller_report.ly, DEADZONE);
+    int16_t rx = apply_deadzone(controller_report.rx, DEADZONE);
+    int16_t ry = apply_deadzone(controller_report.ry, DEADZONE);
+
+    int32_t inv_ly = (ly == INT16_MIN) ? 32767 : -ly;
+    int32_t inv_ry = (ry == INT16_MIN) ? 32767 : -ry;
+
+    _controller_host_state.lx = static_cast<uint16_t>(lx - INT16_MIN);
+    _controller_host_state.ly = static_cast<uint16_t>(inv_ly - INT16_MIN);
+    _controller_host_state.rx = static_cast<uint16_t>(rx - INT16_MIN);
+    _controller_host_state.ry = static_cast<uint16_t>(inv_ry - INT16_MIN);
+#else
     int32_t inv_ly = (controller_report.ly == INT16_MIN) ? 32767 : -controller_report.ly;
     int32_t inv_ry = (controller_report.ry == INT16_MIN) ? 32767 : -controller_report.ry;
 
@@ -250,6 +276,7 @@ void Xbox360Host::process(uint8_t const* report, uint16_t len) {
     _controller_host_state.ly = static_cast<uint16_t>(inv_ly - INT16_MIN);
     _controller_host_state.rx = static_cast<uint16_t>(controller_report.rx - INT16_MIN);
     _controller_host_state.ry = static_cast<uint16_t>(inv_ry - INT16_MIN);
+#endif
 
     _controller_host_state.lt = controller_report.lt;
     _controller_host_state.rt = controller_report.rt;
