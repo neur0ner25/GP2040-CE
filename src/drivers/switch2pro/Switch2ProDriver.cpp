@@ -455,6 +455,23 @@ static void loadIdentity() {
     memcpy(chargingGripData, switch2pro_charging_grip_data, sizeof(chargingGripData));
 
     memcpy(btAddressReversed, switch2pro_bt_address_reversed, sizeof(btAddressReversed));
+#ifdef WAVESHARE_STATIC_CONTROLLER_IDENTITY
+    static const uint8_t dongle_bt_addr[SWITCH2_PRO_BT_RANDOM_BYTES] = { 0x4A, 0x93, 0x2E };
+    memcpy(btAddressReversed, dongle_bt_addr, SWITCH2_PRO_BT_RANDOM_BYTES);
+    memcpy(deviceInfo, switch2pro_device_info, sizeof(deviceInfo));
+    memcpy(&deviceInfo[SWITCH2_PRO_DEVICE_INFO_BT_OFFSET], btAddressReversed, sizeof(btAddressReversed));
+
+    static const uint8_t dongle_key[sizeof(deviceKey)] = {
+        0x3A, 0x7F, 0x91, 0x24, 0xC8, 0x6E, 0x1B, 0x5D,
+        0x90, 0x42, 0xE3, 0x18, 0x67, 0xFA, 0x05, 0x3C
+    };
+    memcpy(deviceKey, dongle_key, sizeof(deviceKey));
+
+    static const char dongle_serial[SWITCH2_PRO_FACTORY_SERIAL_COUNT] = {
+        '9', '2', '8', '4', '1', '7', '0', '5', '3', '6'
+    };
+    memcpy(&factoryData[SWITCH2_PRO_FACTORY_SERIAL_DIGITS], dongle_serial, SWITCH2_PRO_FACTORY_SERIAL_COUNT);
+#else
     for (int i = 0; i < SWITCH2_PRO_BT_RANDOM_BYTES; i++)
         btAddressReversed[i] = get_rand_32() & 0xFF;
     memcpy(deviceInfo, switch2pro_device_info, sizeof(deviceInfo));
@@ -463,6 +480,7 @@ static void loadIdentity() {
         deviceKey[i] = get_rand_32() & 0xFF;
     for (int i = 0; i < SWITCH2_PRO_FACTORY_SERIAL_COUNT; i++)
         factoryData[SWITCH2_PRO_FACTORY_SERIAL_DIGITS + i] = '0' + (get_rand_32() % 10);
+#endif
     productString = switch2pro_strings[SWITCH2_PRO_STRING_PRODUCT];
     firmwareType = SWITCH2_FW_TYPE_PRO;
 

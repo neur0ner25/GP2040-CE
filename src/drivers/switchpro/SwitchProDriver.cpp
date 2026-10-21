@@ -1,4 +1,5 @@
 #include "drivers/switchpro/SwitchProDriver.h"
+#include "BoardConfig.h"
 #include "drivers/shared/driverhelper.h"
 #include "drivers/shared/InputReportPolicy.h"
 #include "drivers/shared/USBReportScheduler.h"
@@ -144,7 +145,11 @@ void SwitchProDriver::initialize() {
         .controllerType = controllerType,
         .unknown00 = 0x02,
         // MAC address in reverse
+#ifdef WAVESHARE_STATIC_CONTROLLER_IDENTITY
+        .macAddress = {0x7c, 0xbb, 0x8a, 0x4a, 0x93, 0x2e},
+#else
         .macAddress = {0x7c, 0xbb, 0x8a, (uint8_t)(get_rand_32() % 0xff), (uint8_t)(get_rand_32() % 0xff), (uint8_t)(get_rand_32() % 0xff)},
+#endif
         .unknown01 = 0x01,
         .storedColors = 0x02,
     };

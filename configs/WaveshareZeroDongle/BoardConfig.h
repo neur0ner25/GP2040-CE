@@ -100,6 +100,9 @@
 // Optional Host Stick Deadzone for Diablo 2 / analog resting drift
 #define XBOX360_HOST_STICK_DEADZONE 1500
 
+// Static persistent controller identity (prevents phantom controllers in Windows/Steam on reboot)
+#define WAVESHARE_STATIC_CONTROLLER_IDENTITY 1
+
 // ERM Vibration Motor Tuning for 8BitDo gamepad (overcomes motor stiction and spin-up inertia)
 #define ERM_RUMBLE_MOTOR_FLOOR    65   // Minimum PWM threshold to overcome motor stiction (0..255)
 #define ERM_RUMBLE_KICKSTART_MS   30   // Overdrive duration on transition from 0 to >0 (ms)
