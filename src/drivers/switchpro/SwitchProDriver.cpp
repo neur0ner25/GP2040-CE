@@ -257,10 +257,14 @@ bool SwitchProDriver::process(Gamepad * gamepad) {
     switchReport.inputs.buttonA = gamepad->pressedB2();
     switchReport.inputs.buttonRightSR = 0;
     switchReport.inputs.buttonRightSL = 0;
+#ifndef SWITCH_TRIGGER_THRESHOLD
+#define SWITCH_TRIGGER_THRESHOLD 128
+#endif
+
     switchReport.inputs.buttonR = gamepad->pressedR1();
     switchReport.inputs.buttonZR = gamepad->pressedR2();
     if (gamepad->hasAnalogTriggers || gamepad->hasRightAnalogStick)
-        switchReport.inputs.buttonZR |= gamepad->state.rt > 0;
+        switchReport.inputs.buttonZR |= (gamepad->state.rt >= SWITCH_TRIGGER_THRESHOLD);
     switchReport.inputs.buttonMinus = gamepad->pressedS1();
     switchReport.inputs.buttonPlus = gamepad->pressedS2();
     switchReport.inputs.buttonThumbR = gamepad->pressedR3();
@@ -272,7 +276,7 @@ bool SwitchProDriver::process(Gamepad * gamepad) {
     switchReport.inputs.buttonL = gamepad->pressedL1();
     switchReport.inputs.buttonZL = gamepad->pressedL2();
     if (gamepad->hasAnalogTriggers || gamepad->hasLeftAnalogStick)
-        switchReport.inputs.buttonZL |= gamepad->state.lt > 0;
+        switchReport.inputs.buttonZL |= (gamepad->state.lt >= SWITCH_TRIGGER_THRESHOLD);
 
     switch (controllerType) {
         case SWITCH_TYPE_SNES:

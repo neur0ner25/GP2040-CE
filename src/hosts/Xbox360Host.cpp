@@ -1,4 +1,5 @@
 #include "hosts/Xbox360Host.h"
+#include "BoardConfig.h"
 #include "tusb_config.h"
 #include "tusb.h"
 #include "drivers/shared/xinput_host.h"
@@ -24,6 +25,15 @@ bool Xbox360Host::match(uint8_t dev_addr, uint8_t instance, uint16_t vendor_id, 
         }
     }
     return false;
+}
+
+static uint8_t switchPlayerMaskToQuadrant(uint8_t mask) {
+    mask &= 0x0F;
+    for (uint8_t quadrant = 1; quadrant <= 4; ++quadrant) {
+        if (mask & (1u << (quadrant - 1)))
+            return quadrant;
+    }
+    return 1;
 }
 
 void Xbox360Host::initialize(uint8_t dev_addr, uint8_t instance, uint16_t vendor_id, uint16_t product_id, uint8_t const* desc_report, uint16_t desc_len) {
@@ -58,12 +68,9 @@ void Xbox360Host::initialize(uint8_t dev_addr, uint8_t instance, uint16_t vendor
 
     Gamepad * gamepad = Storage::getInstance().GetProcessedGamepad();
     
-    uint32_t quadrants = gamepad->auxState.playerID.value;
-    if (quadrants == 0)
-        quadrants = 1;
-    for (uint32_t i = 0; i < quadrants; i++) {
-        xbox360_set_led(i);
-    }
+    const uint8_t quadrant =
+        switchPlayerMaskToQuadrant(gamepad->auxState.playerID.value);
+    xbox360_set_led(quadrant);
 
     rumble_dirty = !xinput_set_rumble(0, 0);
     tuh_xinput_receive_report(_dev_addr, _instance);
@@ -86,10 +93,29 @@ void Xbox360Host::update() {
     }
 
     const GamepadOptions& options = Storage::getInstance().getGamepadOptions();
-    const uint32_t motor_floor = (options.ermRumbleMotorFloor > 255) ? 255 : options.ermRumbleMotorFloor;
-    const uint32_t kickstart_ms = (options.ermRumbleKickstartMs > 500) ? 500 : options.ermRumbleKickstartMs;
-    const uint32_t sustain_ms = (options.ermRumbleSustainMs > 500) ? 500 : options.ermRumbleSustainMs;
-    const uint32_t boost_percent = (options.ermRumbleBoostPercent > 100) ? 100 : options.ermRumbleBoostPercent;
+    uint32_t motor_floor = options.ermRumbleMotorFloor;
+#if defined(ERM_RUMBLE_MOTOR_FLOOR)
+    if (motor_floor == 0) motor_floor = ERM_RUMBLE_MOTOR_FLOOR;
+#endif
+    if (motor_floor > 255) motor_floor = 255;
+
+    uint32_t kickstart_ms = options.ermRumbleKickstartMs;
+#if defined(ERM_RUMBLE_KICKSTART_MS)
+    if (kickstart_ms == 0) kickstart_ms = ERM_RUMBLE_KICKSTART_MS;
+#endif
+    if (kickstart_ms > 500) kickstart_ms = 500;
+
+    uint32_t sustain_ms = options.ermRumbleSustainMs;
+#if defined(ERM_RUMBLE_SUSTAIN_MS)
+    if (sustain_ms == 0) sustain_ms = ERM_RUMBLE_SUSTAIN_MS;
+#endif
+    if (sustain_ms > 500) sustain_ms = 500;
+
+    uint32_t boost_percent = options.ermRumbleBoostPercent;
+#if defined(ERM_RUMBLE_BOOST_PERCENT)
+    if (boost_percent == 0) boost_percent = ERM_RUMBLE_BOOST_PERCENT;
+#endif
+    if (boost_percent > 100) boost_percent = 100;
 
     // 1. Motor Floor: map any non-zero intensity into [motor_floor .. 255]
     // to overcome physical static friction (stiction) of ERM motor brushes.
@@ -221,11 +247,9 @@ static inline int16_t apply_deadzone(int16_t val, int16_t deadzone) {
 void Xbox360Host::process(uint8_t const* report, uint16_t len) {
     XInputReport controller_report;
 
-   
-
-    if (len < sizeof(XInputReport)) {
+    if (len < sizeof(XInputReport) || report[0] != 0x00 || report[1] != sizeof(XInputReport)) {
 #ifdef GAMEPAD_HOST_DEBUG
-        printf("Xbox 360 report too small: %d bytes\n", len);
+        printf("Xbox 360 report invalid or non-input packet: %d bytes\n", len);
 #endif
         return;
     }
@@ -301,14 +325,14 @@ void Xbox360Host::gamepad(Gamepad * gamepad) {
 }
 
 void Xbox360Host::xbox360_set_led(uint8_t quadrant) {
+    if (!tuh_xinput_mounted(_dev_addr, _instance))
+        return;
+
     uint8_t out[32] = { 0 };
 
     memcpy(out, XBOX360_WIRED_LED, sizeof(XBOX360_WIRED_LED));
     out[2] = (quadrant == 0) ? 0 : (quadrant + 5);
-    bool ret = tuh_xinput_send_report(_dev_addr, _instance, out, sizeof(XBOX360_WIRED_LED));
-    if (ret) {
-        tuh_xinput_wait_for_tx(_dev_addr, _instance);
-    }
+    tuh_xinput_send_report(_dev_addr, _instance, out, sizeof(XBOX360_WIRED_LED));
 }
 
 bool Xbox360Host::xinput_set_rumble(uint8_t left, uint8_t right) {
