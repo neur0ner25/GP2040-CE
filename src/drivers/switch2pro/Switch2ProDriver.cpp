@@ -782,6 +782,58 @@ static void setSwitch2ProRumble(uint8_t left, uint8_t right) {
     rumbleWatchdogActive = (left > 0 || right > 0);
 }
 
+#if defined(HD_RUMBLE_FREQUENCY_CROSSOVER) && HD_RUMBLE_FREQUENCY_CROSSOVER
+static void extract_switch2_amplitudes(const uint8_t *d, uint16_t &lf_peak, uint16_t &hf_peak) {
+    lf_peak = 0;
+    hf_peak = 0;
+    for (int s = 0; s < 3; s++) {
+        const uint8_t *slice = &d[1 + s * 5];
+        const uint64_t v = (uint64_t)slice[0] |
+                          ((uint64_t)slice[1] << 8) |
+                          ((uint64_t)slice[2] << 16) |
+                          ((uint64_t)slice[3] << 24) |
+                          ((uint64_t)slice[4] << 32);
+
+        const uint16_t lf = (v >> 10) & 0x3FF;
+        const uint16_t hf = (v >> 30) & 0x3FF;
+        if (lf > lf_peak) lf_peak = lf;
+        if (hf > hf_peak) hf_peak = hf;
+    }
+}
+
+static inline uint8_t scale_switch2_single(uint16_t amp) {
+    if (amp == 0) return 0;
+    if (amp > 1023) amp = 1023;
+    uint32_t scaled = (uint32_t)(sqrtf((float)amp / 1023.0f) * 255.0f);
+    return (scaled > 255) ? 255 : (uint8_t)scaled;
+}
+
+static void extract_switch1_amplitudes(const uint8_t *d, uint8_t &lf_amp, uint8_t &hf_amp) {
+    if (d[0] == 0x00 && d[1] == 0x01 && d[2] == 0x40 && d[3] == 0x40) {
+        lf_amp = 0;
+        hf_amp = 0;
+        return;
+    }
+    uint8_t hf = (d[1] & 0xFE) >> 1;
+    if (hf > 100) hf = 100;
+    hf_amp = hf;
+
+    uint8_t lf = 0;
+    if (d[3] >= 0x40) {
+        uint16_t step = ((uint16_t)(d[3] - 0x40) << 1) + ((d[2] & 0x80) ? 1 : 0);
+        lf = (step > 100) ? 100 : (uint8_t)step;
+    }
+    lf_amp = lf;
+}
+
+static inline uint8_t scale_switch1_single(uint8_t amp) {
+    if (amp == 0) return 0;
+    if (amp > 100) amp = 100;
+    uint32_t scaled = (uint32_t)(sqrtf((float)amp / 100.0f) * 255.0f);
+    return (scaled > 255) ? 255 : (uint8_t)scaled;
+}
+#endif
+
 void Switch2ProDriver::set_report(uint8_t report_id, hid_report_type_t report_type, uint8_t const *buffer, uint16_t bufsize) {
     if (bufsize == 0 || buffer == nullptr) return;
 
@@ -798,14 +850,39 @@ void Switch2ProDriver::set_report(uint8_t report_id, hid_report_type_t report_ty
     if (switchReportID == 0x02) {
         // Pro Controller 2 Output Report (16 bytes Left + 16 bytes Right)
         if (dataLen >= 32) {
+#if defined(HD_RUMBLE_FREQUENCY_CROSSOVER) && HD_RUMBLE_FREQUENCY_CROSSOVER
+            uint16_t l_lf = 0, l_hf = 0, r_lf = 0, r_hf = 0;
+            extract_switch2_amplitudes(data, l_lf, l_hf);
+            extract_switch2_amplitudes(data + 16, r_lf, r_hf);
+
+            uint32_t lf_max = (l_lf > r_lf) ? l_lf : r_lf;
+            uint32_t lf_min = (l_lf > r_lf) ? r_lf : l_lf;
+            uint32_t lf_combined = lf_max + (lf_min / 4);
+
+            uint32_t hf_max = (l_hf > r_hf) ? l_hf : r_hf;
+            uint32_t hf_min = (l_hf > r_hf) ? r_hf : l_hf;
+            uint32_t hf_combined = hf_max + (hf_min / 4);
+
+            uint8_t heavy_motor = scale_switch2_single(lf_combined > 1023 ? 1023 : (uint16_t)lf_combined);
+            uint8_t light_motor = scale_switch2_single(hf_combined > 1023 ? 1023 : (uint16_t)hf_combined);
+            setSwitch2ProRumble(heavy_motor, light_motor);
+#else
             uint8_t left = decode_switch2_motor(data);
             uint8_t right = decode_switch2_motor(data + 16);
             setSwitch2ProRumble(left, right);
+#endif
             lastRumblePacketTime = to_ms_since_boot(get_absolute_time());
         }
     } else if (switchReportID == 0x01) {
         if (dataLen >= 16 && (data[0] & 0xF0) == 0x50) {
             // Joy-Con 2 Output Report (16 bytes HD rumble)
+#if defined(HD_RUMBLE_FREQUENCY_CROSSOVER) && HD_RUMBLE_FREQUENCY_CROSSOVER
+            uint16_t j_lf = 0, j_hf = 0;
+            extract_switch2_amplitudes(data, j_lf, j_hf);
+            uint8_t heavy_motor = scale_switch2_single(j_lf);
+            uint8_t light_motor = scale_switch2_single(j_hf);
+            setSwitch2ProRumble(heavy_motor, light_motor);
+#else
             uint8_t rumble = decode_switch2_motor(data);
             if (joyCon2Side == 1) {
                 setSwitch2ProRumble(rumble, 0);
@@ -814,20 +891,57 @@ void Switch2ProDriver::set_report(uint8_t report_id, hid_report_type_t report_ty
             } else {
                 setSwitch2ProRumble(rumble, rumble);
             }
+#endif
             lastRumblePacketTime = to_ms_since_boot(get_absolute_time());
         } else if (dataLen >= 9) {
             // Backward-compatible Switch 1 Output Report 0x01
+#if defined(HD_RUMBLE_FREQUENCY_CROSSOVER) && HD_RUMBLE_FREQUENCY_CROSSOVER
+            uint8_t l_lf = 0, l_hf = 0, r_lf = 0, r_hf = 0;
+            extract_switch1_amplitudes(data + 1, l_lf, l_hf);
+            extract_switch1_amplitudes(data + 5, r_lf, r_hf);
+
+            uint32_t lf_max = (l_lf > r_lf) ? l_lf : r_lf;
+            uint32_t lf_min = (l_lf > r_lf) ? r_lf : l_lf;
+            uint32_t lf_combined = lf_max + (lf_min / 4);
+
+            uint32_t hf_max = (l_hf > r_hf) ? l_hf : r_hf;
+            uint32_t hf_min = (l_hf > r_hf) ? r_hf : l_hf;
+            uint32_t hf_combined = hf_max + (hf_min / 4);
+
+            uint8_t heavy_motor = scale_switch1_single(lf_combined > 100 ? 100 : (uint8_t)lf_combined);
+            uint8_t light_motor = scale_switch1_single(hf_combined > 100 ? 100 : (uint8_t)hf_combined);
+            setSwitch2ProRumble(heavy_motor, light_motor);
+#else
             uint8_t left = decode_switch1_motor(data + 1);
             uint8_t right = decode_switch1_motor(data + 5);
             setSwitch2ProRumble(left, right);
+#endif
             lastRumblePacketTime = to_ms_since_boot(get_absolute_time());
         }
     } else if (switchReportID == 0x10 || switchReportID == 0x80) {
         // Backward-compatible Switch 1 Output Report 0x10 / Feature 0x80
         if (dataLen >= 9) {
+#if defined(HD_RUMBLE_FREQUENCY_CROSSOVER) && HD_RUMBLE_FREQUENCY_CROSSOVER
+            uint8_t l_lf = 0, l_hf = 0, r_lf = 0, r_hf = 0;
+            extract_switch1_amplitudes(data + 1, l_lf, l_hf);
+            extract_switch1_amplitudes(data + 5, r_lf, r_hf);
+
+            uint32_t lf_max = (l_lf > r_lf) ? l_lf : r_lf;
+            uint32_t lf_min = (l_lf > r_lf) ? r_lf : l_lf;
+            uint32_t lf_combined = lf_max + (lf_min / 4);
+
+            uint32_t hf_max = (l_hf > r_hf) ? l_hf : r_hf;
+            uint32_t hf_min = (l_hf > r_hf) ? r_hf : l_hf;
+            uint32_t hf_combined = hf_max + (hf_min / 4);
+
+            uint8_t heavy_motor = scale_switch1_single(lf_combined > 100 ? 100 : (uint8_t)lf_combined);
+            uint8_t light_motor = scale_switch1_single(hf_combined > 100 ? 100 : (uint8_t)hf_combined);
+            setSwitch2ProRumble(heavy_motor, light_motor);
+#else
             uint8_t left = decode_switch1_motor(data + 1);
             uint8_t right = decode_switch1_motor(data + 5);
             setSwitch2ProRumble(left, right);
+#endif
             lastRumblePacketTime = to_ms_since_boot(get_absolute_time());
         }
     }

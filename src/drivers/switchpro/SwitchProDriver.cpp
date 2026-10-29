@@ -810,9 +810,53 @@ static inline uint8_t decode_hd_rumble(const uint8_t* r) {
     return (scaled > 255) ? 255 : (uint8_t)scaled;
 }
 
+#if defined(HD_RUMBLE_FREQUENCY_CROSSOVER) && HD_RUMBLE_FREQUENCY_CROSSOVER
+static void extract_switch1_pro_amplitudes(const uint8_t *d, uint8_t &lf_amp, uint8_t &hf_amp) {
+    if (d[0] == 0x00 && d[1] == 0x01 && d[2] == 0x40 && d[3] == 0x40) {
+        lf_amp = 0;
+        hf_amp = 0;
+        return;
+    }
+    uint8_t hf = (d[1] & 0xFE) >> 1;
+    if (hf > 100) hf = 100;
+    hf_amp = hf;
+
+    uint8_t lf = 0;
+    if (d[3] >= 0x40) {
+        uint16_t step = ((uint16_t)(d[3] - 0x40) << 1) + ((d[2] & 0x80) ? 1 : 0);
+        lf = (step > 100) ? 100 : (uint8_t)step;
+    }
+    lf_amp = lf;
+}
+
+static inline uint8_t scale_switch1_pro_single(uint8_t amp) {
+    if (amp == 0) return 0;
+    if (amp > 100) amp = 100;
+    uint32_t scaled = (uint32_t)(sqrtf((float)amp / 100.0f) * 255.0f);
+    return (scaled > 255) ? 255 : (uint8_t)scaled;
+}
+#endif
+
 static void setSwitchProRumble(const uint8_t* rumbleData) {
+#if defined(HD_RUMBLE_FREQUENCY_CROSSOVER) && HD_RUMBLE_FREQUENCY_CROSSOVER
+    uint8_t l_lf = 0, l_hf = 0, r_lf = 0, r_hf = 0;
+    extract_switch1_pro_amplitudes(&rumbleData[0], l_lf, l_hf);
+    extract_switch1_pro_amplitudes(&rumbleData[4], r_lf, r_hf);
+
+    uint32_t lf_max = (l_lf > r_lf) ? l_lf : r_lf;
+    uint32_t lf_min = (l_lf > r_lf) ? r_lf : l_lf;
+    uint32_t lf_combined = lf_max + (lf_min / 4);
+
+    uint32_t hf_max = (l_hf > r_hf) ? l_hf : r_hf;
+    uint32_t hf_min = (l_hf > r_hf) ? r_hf : l_hf;
+    uint32_t hf_combined = hf_max + (hf_min / 4);
+
+    uint8_t left_intensity = scale_switch1_pro_single(lf_combined > 100 ? 100 : (uint8_t)lf_combined);
+    uint8_t right_intensity = scale_switch1_pro_single(hf_combined > 100 ? 100 : (uint8_t)hf_combined);
+#else
     uint8_t left_intensity = decode_hd_rumble(&rumbleData[0]);
     uint8_t right_intensity = decode_hd_rumble(&rumbleData[4]);
+#endif
 
     Gamepad * processedGamepad = Storage::getInstance().GetProcessedGamepad();
     if (processedGamepad != nullptr) {
