@@ -843,13 +843,8 @@ static void setSwitchProRumble(const uint8_t* rumbleData) {
     extract_switch1_pro_amplitudes(&rumbleData[0], l_lf, l_hf);
     extract_switch1_pro_amplitudes(&rumbleData[4], r_lf, r_hf);
 
-    uint32_t lf_max = (l_lf > r_lf) ? l_lf : r_lf;
-    uint32_t lf_min = (l_lf > r_lf) ? r_lf : l_lf;
-    uint32_t lf_combined = lf_max + (lf_min / 4);
-
-    uint32_t hf_max = (l_hf > r_hf) ? l_hf : r_hf;
-    uint32_t hf_min = (l_hf > r_hf) ? r_hf : l_hf;
-    uint32_t hf_combined = hf_max + (hf_min / 4);
+    uint32_t lf_combined = (l_lf > r_lf) ? l_lf : r_lf;
+    uint32_t hf_combined = (l_hf > r_hf) ? l_hf : r_hf;
 
     uint8_t left_intensity = scale_switch1_pro_single(lf_combined > 100 ? 100 : (uint8_t)lf_combined);
     uint8_t right_intensity = scale_switch1_pro_single(hf_combined > 100 ? 100 : (uint8_t)hf_combined);

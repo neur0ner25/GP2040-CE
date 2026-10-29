@@ -855,13 +855,8 @@ void Switch2ProDriver::set_report(uint8_t report_id, hid_report_type_t report_ty
             extract_switch2_amplitudes(data, l_lf, l_hf);
             extract_switch2_amplitudes(data + 16, r_lf, r_hf);
 
-            uint32_t lf_max = (l_lf > r_lf) ? l_lf : r_lf;
-            uint32_t lf_min = (l_lf > r_lf) ? r_lf : l_lf;
-            uint32_t lf_combined = lf_max + (lf_min / 4);
-
-            uint32_t hf_max = (l_hf > r_hf) ? l_hf : r_hf;
-            uint32_t hf_min = (l_hf > r_hf) ? r_hf : l_hf;
-            uint32_t hf_combined = hf_max + (hf_min / 4);
+            uint32_t lf_combined = (l_lf > r_lf) ? l_lf : r_lf;
+            uint32_t hf_combined = (l_hf > r_hf) ? l_hf : r_hf;
 
             uint8_t heavy_motor = scale_switch2_single(lf_combined > 1023 ? 1023 : (uint16_t)lf_combined);
             uint8_t light_motor = scale_switch2_single(hf_combined > 1023 ? 1023 : (uint16_t)hf_combined);
@@ -900,13 +895,8 @@ void Switch2ProDriver::set_report(uint8_t report_id, hid_report_type_t report_ty
             extract_switch1_amplitudes(data + 1, l_lf, l_hf);
             extract_switch1_amplitudes(data + 5, r_lf, r_hf);
 
-            uint32_t lf_max = (l_lf > r_lf) ? l_lf : r_lf;
-            uint32_t lf_min = (l_lf > r_lf) ? r_lf : l_lf;
-            uint32_t lf_combined = lf_max + (lf_min / 4);
-
-            uint32_t hf_max = (l_hf > r_hf) ? l_hf : r_hf;
-            uint32_t hf_min = (l_hf > r_hf) ? r_hf : l_hf;
-            uint32_t hf_combined = hf_max + (hf_min / 4);
+            uint32_t lf_combined = (l_lf > r_lf) ? l_lf : r_lf;
+            uint32_t hf_combined = (l_hf > r_hf) ? l_hf : r_hf;
 
             uint8_t heavy_motor = scale_switch1_single(lf_combined > 100 ? 100 : (uint8_t)lf_combined);
             uint8_t light_motor = scale_switch1_single(hf_combined > 100 ? 100 : (uint8_t)hf_combined);
@@ -926,13 +916,8 @@ void Switch2ProDriver::set_report(uint8_t report_id, hid_report_type_t report_ty
             extract_switch1_amplitudes(data + 1, l_lf, l_hf);
             extract_switch1_amplitudes(data + 5, r_lf, r_hf);
 
-            uint32_t lf_max = (l_lf > r_lf) ? l_lf : r_lf;
-            uint32_t lf_min = (l_lf > r_lf) ? r_lf : l_lf;
-            uint32_t lf_combined = lf_max + (lf_min / 4);
-
-            uint32_t hf_max = (l_hf > r_hf) ? l_hf : r_hf;
-            uint32_t hf_min = (l_hf > r_hf) ? r_hf : l_hf;
-            uint32_t hf_combined = hf_max + (hf_min / 4);
+            uint32_t lf_combined = (l_lf > r_lf) ? l_lf : r_lf;
+            uint32_t hf_combined = (l_hf > r_hf) ? l_hf : r_hf;
 
             uint8_t heavy_motor = scale_switch1_single(lf_combined > 100 ? 100 : (uint8_t)lf_combined);
             uint8_t light_motor = scale_switch1_single(hf_combined > 100 ? 100 : (uint8_t)hf_combined);

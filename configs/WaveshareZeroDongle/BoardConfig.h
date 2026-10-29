@@ -110,6 +110,6 @@
 #define ERM_RUMBLE_MOTOR_FLOOR    65   // Minimum PWM threshold to overcome motor stiction (0..255)
 #define ERM_RUMBLE_KICKSTART_MS   30   // Overdrive duration on transition from 0 to >0 (ms)
 #define ERM_RUMBLE_SUSTAIN_MS     95   // Minimum pulse sustain for physical rotation (ms)
-#define ERM_RUMBLE_BOOST_PERCENT  35   // Scale overall rumble (+35%)
+#define ERM_RUMBLE_BOOST_PERCENT  0    // Scale overall rumble (0% boost for testing)
 
 #endif

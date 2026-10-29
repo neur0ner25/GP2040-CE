@@ -111,9 +111,13 @@ void Xbox360Host::update() {
 #endif
     if (sustain_ms > 500) sustain_ms = 500;
 
+#if defined(WAVESHARE_STATIC_CONTROLLER_IDENTITY) && defined(ERM_RUMBLE_BOOST_PERCENT)
+    uint32_t boost_percent = ERM_RUMBLE_BOOST_PERCENT;
+#else
     uint32_t boost_percent = options.ermRumbleBoostPercent;
 #if defined(ERM_RUMBLE_BOOST_PERCENT)
     if (boost_percent == 0) boost_percent = ERM_RUMBLE_BOOST_PERCENT;
+#endif
 #endif
     if (boost_percent > 100) boost_percent = 100;
 
