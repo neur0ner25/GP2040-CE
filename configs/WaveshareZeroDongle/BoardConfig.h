@@ -106,10 +106,15 @@
 // HD Rumble Frequency Crossover mode: route Low Frequency (LF) -> Heavy Left motor, High Frequency (HF) -> Light Right motor
 #define HD_RUMBLE_FREQUENCY_CROSSOVER 1
 
-// ERM Vibration Motor Tuning for 8BitDo gamepad (overcomes motor stiction and spin-up inertia)
-#define ERM_RUMBLE_MOTOR_FLOOR    65   // Minimum PWM threshold to overcome motor stiction (0..255)
-#define ERM_RUMBLE_KICKSTART_MS   30   // Overdrive duration on transition from 0 to >0 (ms)
-#define ERM_RUMBLE_SUSTAIN_MS     95   // Minimum pulse sustain for physical rotation (ms)
-#define ERM_RUMBLE_BOOST_PERCENT  0    // Scale overall rumble (0% boost for testing)
+// ERM Vibration Motor Tuning for 8BitDo gamepad (independent asymmetric motor dynamics)
+#define ERM_RUMBLE_LEFT_MOTOR_FLOOR    65   // Minimum PWM threshold for heavy motor stiction (0..255)
+#define ERM_RUMBLE_RIGHT_MOTOR_FLOOR   48   // Minimum PWM threshold for light motor stiction (0..255)
+#define ERM_RUMBLE_LEFT_KICKSTART_MS   30   // Overdrive duration for heavy motor spin-up (ms)
+#define ERM_RUMBLE_RIGHT_KICKSTART_MS  15   // Overdrive duration for light motor spin-up (ms)
+#define ERM_RUMBLE_LEFT_KICKSTART_PWM  50   // Overdrive PWM boost for heavy motor
+#define ERM_RUMBLE_RIGHT_KICKSTART_PWM 20   // Overdrive PWM boost for light motor
+#define ERM_RUMBLE_LEFT_SUSTAIN_MS     95   // Minimum pulse sustain for heavy physical mass (ms)
+#define ERM_RUMBLE_RIGHT_SUSTAIN_MS    35   // Minimum pulse sustain for crisp light ticks (ms)
+#define ERM_RUMBLE_BOOST_PERCENT       0    // Scale overall rumble (0% boost for testing)
 
 #endif

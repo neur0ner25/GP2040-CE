@@ -93,23 +93,63 @@ void Xbox360Host::update() {
     }
 
     const GamepadOptions& options = Storage::getInstance().getGamepadOptions();
-    uint32_t motor_floor = options.ermRumbleMotorFloor;
-#if defined(ERM_RUMBLE_MOTOR_FLOOR)
-    if (motor_floor == 0) motor_floor = ERM_RUMBLE_MOTOR_FLOOR;
+    uint32_t left_floor = options.ermRumbleMotorFloor;
+#if defined(ERM_RUMBLE_LEFT_MOTOR_FLOOR)
+    left_floor = ERM_RUMBLE_LEFT_MOTOR_FLOOR;
+#elif defined(ERM_RUMBLE_MOTOR_FLOOR)
+    if (left_floor == 0) left_floor = ERM_RUMBLE_MOTOR_FLOOR;
 #endif
-    if (motor_floor > 255) motor_floor = 255;
+    if (left_floor > 255) left_floor = 255;
 
-    uint32_t kickstart_ms = options.ermRumbleKickstartMs;
-#if defined(ERM_RUMBLE_KICKSTART_MS)
-    if (kickstart_ms == 0) kickstart_ms = ERM_RUMBLE_KICKSTART_MS;
+    uint32_t right_floor = options.ermRumbleMotorFloor;
+#if defined(ERM_RUMBLE_RIGHT_MOTOR_FLOOR)
+    right_floor = ERM_RUMBLE_RIGHT_MOTOR_FLOOR;
+#elif defined(ERM_RUMBLE_MOTOR_FLOOR)
+    if (right_floor == 0) right_floor = ERM_RUMBLE_MOTOR_FLOOR;
 #endif
-    if (kickstart_ms > 500) kickstart_ms = 500;
+    if (right_floor > 255) right_floor = 255;
 
-    uint32_t sustain_ms = options.ermRumbleSustainMs;
-#if defined(ERM_RUMBLE_SUSTAIN_MS)
-    if (sustain_ms == 0) sustain_ms = ERM_RUMBLE_SUSTAIN_MS;
+    uint32_t left_kickstart_ms = options.ermRumbleKickstartMs;
+#if defined(ERM_RUMBLE_LEFT_KICKSTART_MS)
+    left_kickstart_ms = ERM_RUMBLE_LEFT_KICKSTART_MS;
+#elif defined(ERM_RUMBLE_KICKSTART_MS)
+    if (left_kickstart_ms == 0) left_kickstart_ms = ERM_RUMBLE_KICKSTART_MS;
 #endif
-    if (sustain_ms > 500) sustain_ms = 500;
+    if (left_kickstart_ms > 500) left_kickstart_ms = 500;
+
+    uint32_t right_kickstart_ms = options.ermRumbleKickstartMs;
+#if defined(ERM_RUMBLE_RIGHT_KICKSTART_MS)
+    right_kickstart_ms = ERM_RUMBLE_RIGHT_KICKSTART_MS;
+#elif defined(ERM_RUMBLE_KICKSTART_MS)
+    if (right_kickstart_ms == 0) right_kickstart_ms = ERM_RUMBLE_KICKSTART_MS;
+#endif
+    if (right_kickstart_ms > 500) right_kickstart_ms = 500;
+
+    uint32_t left_kick_pwm = 50;
+#if defined(ERM_RUMBLE_LEFT_KICKSTART_PWM)
+    left_kick_pwm = ERM_RUMBLE_LEFT_KICKSTART_PWM;
+#endif
+
+    uint32_t right_kick_pwm = 20;
+#if defined(ERM_RUMBLE_RIGHT_KICKSTART_PWM)
+    right_kick_pwm = ERM_RUMBLE_RIGHT_KICKSTART_PWM;
+#endif
+
+    uint32_t left_sustain_ms = options.ermRumbleSustainMs;
+#if defined(ERM_RUMBLE_LEFT_SUSTAIN_MS)
+    left_sustain_ms = ERM_RUMBLE_LEFT_SUSTAIN_MS;
+#elif defined(ERM_RUMBLE_SUSTAIN_MS)
+    if (left_sustain_ms == 0) left_sustain_ms = ERM_RUMBLE_SUSTAIN_MS;
+#endif
+    if (left_sustain_ms > 500) left_sustain_ms = 500;
+
+    uint32_t right_sustain_ms = options.ermRumbleSustainMs;
+#if defined(ERM_RUMBLE_RIGHT_SUSTAIN_MS)
+    right_sustain_ms = ERM_RUMBLE_RIGHT_SUSTAIN_MS;
+#elif defined(ERM_RUMBLE_SUSTAIN_MS)
+    if (right_sustain_ms == 0) right_sustain_ms = ERM_RUMBLE_SUSTAIN_MS;
+#endif
+    if (right_sustain_ms > 500) right_sustain_ms = 500;
 
 #if defined(WAVESHARE_STATIC_CONTROLLER_IDENTITY) && defined(ERM_RUMBLE_BOOST_PERCENT)
     uint32_t boost_percent = ERM_RUMBLE_BOOST_PERCENT;
@@ -123,15 +163,13 @@ void Xbox360Host::update() {
 
     // 1. Motor Floor: map any non-zero intensity into [motor_floor .. 255]
     // to overcome physical static friction (stiction) of ERM motor brushes.
-    if (motor_floor > 0) {
-        if (leftRumble > 0) {
-            leftRumble = motor_floor +
-                         ((uint32_t)leftRumble * (255 - motor_floor)) / 255;
-        }
-        if (rightRumble > 0) {
-            rightRumble = motor_floor +
-                          ((uint32_t)rightRumble * (255 - motor_floor)) / 255;
-        }
+    if (left_floor > 0 && leftRumble > 0) {
+        leftRumble = left_floor +
+                     ((uint32_t)leftRumble * (255 - left_floor)) / 255;
+    }
+    if (right_floor > 0 && rightRumble > 0) {
+        rightRumble = right_floor +
+                      ((uint32_t)rightRumble * (255 - right_floor)) / 255;
     }
 
     // 2. Global Boost
@@ -149,78 +187,73 @@ void Xbox360Host::update() {
     const uint32_t now = to_ms_since_boot(get_absolute_time());
 
     // 3. Overdrive Kickstart + Pulse Sustain (wrap-safe elapsed time comparisons):
-    // When transitioning from stationary (0) to spinning (>0), apply an initial +50 PWM kickstart
-    // for kickstart_ms to rapidly overcome rotor inertia, and sustain for sustain_ms
-    // so physical motors have sufficient time to complete multiple revolutions and deliver tactile feedback.
-    if (kickstart_ms > 0 || sustain_ms > 0) {
-        // Left actuator sustain:
-        if (sustain_ms > 0) {
-            if (leftRumble > 0) {
-                sustained_left_rumble = leftRumble;
-                left_rumble_start = now;
-                left_rumble_active = true;
-            } else if (left_rumble_active) {
-                if ((uint32_t)(now - left_rumble_start) < sustain_ms) {
-                    leftRumble = sustained_left_rumble;
-                } else {
-                    left_rumble_active = false;
-                }
-            }
-        }
-
-        // Left actuator kickstart overdrive:
-        if (kickstart_ms > 0) {
-            if (leftRumble > 0) {
-                if (last_left_rumble == 0) {
-                    left_kickstart_start = now;
-                    left_kickstart_active = true;
-                }
-                if (left_kickstart_active) {
-                    if ((uint32_t)(now - left_kickstart_start) < kickstart_ms) {
-                        uint32_t kick = (uint32_t)leftRumble + 50;
-                        leftRumble = (kick > 255) ? 255 : (uint8_t)kick;
-                    } else {
-                        left_kickstart_active = false;
-                    }
-                }
+    // Left actuator sustain:
+    if (left_sustain_ms > 0) {
+        if (leftRumble > 0) {
+            sustained_left_rumble = leftRumble;
+            left_rumble_start = now;
+            left_rumble_active = true;
+        } else if (left_rumble_active) {
+            if ((uint32_t)(now - left_rumble_start) < left_sustain_ms) {
+                leftRumble = sustained_left_rumble;
             } else {
-                left_kickstart_active = false;
+                left_rumble_active = false;
             }
         }
+    }
 
-        // Right actuator sustain:
-        if (sustain_ms > 0) {
-            if (rightRumble > 0) {
-                sustained_right_rumble = rightRumble;
-                right_rumble_start = now;
-                right_rumble_active = true;
-            } else if (right_rumble_active) {
-                if ((uint32_t)(now - right_rumble_start) < sustain_ms) {
-                    rightRumble = sustained_right_rumble;
+    // Left actuator kickstart overdrive:
+    if (left_kickstart_ms > 0) {
+        if (leftRumble > 0) {
+            if (last_left_rumble == 0) {
+                left_kickstart_start = now;
+                left_kickstart_active = true;
+            }
+            if (left_kickstart_active) {
+                if ((uint32_t)(now - left_kickstart_start) < left_kickstart_ms) {
+                    uint32_t kick = (uint32_t)leftRumble + left_kick_pwm;
+                    leftRumble = (kick > 255) ? 255 : (uint8_t)kick;
                 } else {
-                    right_rumble_active = false;
+                    left_kickstart_active = false;
                 }
+            }
+        } else {
+            left_kickstart_active = false;
+        }
+    }
+
+    // Right actuator sustain:
+    if (right_sustain_ms > 0) {
+        if (rightRumble > 0) {
+            sustained_right_rumble = rightRumble;
+            right_rumble_start = now;
+            right_rumble_active = true;
+        } else if (right_rumble_active) {
+            if ((uint32_t)(now - right_rumble_start) < right_sustain_ms) {
+                rightRumble = sustained_right_rumble;
+            } else {
+                right_rumble_active = false;
             }
         }
+    }
 
-        // Right actuator kickstart overdrive:
-        if (kickstart_ms > 0) {
-            if (rightRumble > 0) {
-                if (last_right_rumble == 0) {
-                    right_kickstart_start = now;
-                    right_kickstart_active = true;
-                }
-                if (right_kickstart_active) {
-                    if ((uint32_t)(now - right_kickstart_start) < kickstart_ms) {
-                        uint32_t kick = (uint32_t)rightRumble + 50;
-                        rightRumble = (kick > 255) ? 255 : (uint8_t)kick;
-                    } else {
-                        right_kickstart_active = false;
-                    }
-                }
-            } else {
-                right_kickstart_active = false;
+    // Right actuator kickstart overdrive:
+    if (right_kickstart_ms > 0) {
+        if (rightRumble > 0) {
+            if (last_right_rumble == 0) {
+                right_kickstart_start = now;
+                right_kickstart_active = true;
             }
+            if (right_kickstart_active) {
+                if ((uint32_t)(now - right_kickstart_start) < right_kickstart_ms) {
+                    uint32_t kick = (uint32_t)rightRumble + right_kick_pwm;
+                    rightRumble = (kick > 255) ? 255 : (uint8_t)kick;
+                } else {
+                    right_kickstart_active = false;
+                }
+            }
+        } else {
+            right_kickstart_active = false;
         }
     }
 

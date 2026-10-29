@@ -801,11 +801,51 @@ static void extract_switch2_amplitudes(const uint8_t *d, uint16_t &lf_peak, uint
     }
 }
 
-static inline uint8_t scale_switch2_single(uint16_t amp) {
-    if (amp == 0) return 0;
-    if (amp > 1023) amp = 1023;
-    uint32_t scaled = (uint32_t)(sqrtf((float)amp / 1023.0f) * 255.0f);
-    return (scaled > 255) ? 255 : (uint8_t)scaled;
+static inline void synthesize_switch2_crossover(uint16_t l_lf, uint16_t l_hf,
+                                               uint16_t r_lf, uint16_t r_hf,
+                                               uint8_t &heavy_motor, uint8_t &light_motor) {
+    // 1. Two-handed energy combining: primary hand plus 25% contribution of secondary hand
+    uint32_t lf_max = (l_lf > r_lf) ? l_lf : r_lf;
+    uint32_t lf_min = (l_lf > r_lf) ? r_lf : l_lf;
+    uint32_t lf_energy = lf_max + (lf_min / 4);
+
+    uint32_t hf_max = (l_hf > r_hf) ? l_hf : r_hf;
+    uint32_t hf_min = (l_hf > r_hf) ? r_hf : l_hf;
+    uint32_t hf_energy = hf_max + (hf_min / 4);
+
+    // 2. Transient Gate: for sharp high-frequency clicks (e.g. pistol shots, UI clicks),
+    // if LF amplitude is negligible or overwhelmingly dominated by HF (>5:1 ratio with LF < 35),
+    // gate LF to 0 so the heavy motor does not twitch or rattle.
+    if (lf_energy < 35 && (lf_energy * 5 < hf_energy || lf_energy < 15)) {
+        lf_energy = 0;
+    }
+
+    // 3. Broadband Impact Cross-feed: when a heavy blast occurs (e.g. Railgun, explosion, shotgun),
+    // LF is active (>= 35) AND HF is active. Add 25% of HF energy to reinforce the heavy motor.
+    uint32_t lf_combined = lf_energy;
+    if (lf_energy >= 35 && hf_energy > 0) {
+        lf_combined += (hf_energy * 25) / 100;
+    }
+
+    // 4. Heavy Left Motor: normalized against realistic Switch 2 LF full scale (~400 out of 1023),
+    // shaped with convex sqrtf curve to compensate for ERM rotational inertia and centrifugal force (F ~ w^2).
+    if (lf_combined == 0) {
+        heavy_motor = 0;
+    } else {
+        if (lf_combined > 400) lf_combined = 400;
+        uint32_t scaled = (uint32_t)(sqrtf((float)lf_combined / 400.0f) * 255.0f);
+        heavy_motor = (scaled > 255) ? 255 : (uint8_t)scaled;
+    }
+
+    // 5. Light Right Motor: normalized against 1023 with a linear 0.70x scale.
+    // Keeps subtle textures and pistol clicks crisp and soft without screaming at 100% RPM.
+    if (hf_energy == 0) {
+        light_motor = 0;
+    } else {
+        if (hf_energy > 1023) hf_energy = 1023;
+        uint32_t scaled = (uint32_t)(((float)hf_energy / 1023.0f) * 0.70f * 255.0f);
+        light_motor = (scaled > 255) ? 255 : (uint8_t)scaled;
+    }
 }
 
 static void extract_switch1_amplitudes(const uint8_t *d, uint8_t &lf_amp, uint8_t &hf_amp) {
@@ -826,11 +866,41 @@ static void extract_switch1_amplitudes(const uint8_t *d, uint8_t &lf_amp, uint8_
     lf_amp = lf;
 }
 
-static inline uint8_t scale_switch1_single(uint8_t amp) {
-    if (amp == 0) return 0;
-    if (amp > 100) amp = 100;
-    uint32_t scaled = (uint32_t)(sqrtf((float)amp / 100.0f) * 255.0f);
-    return (scaled > 255) ? 255 : (uint8_t)scaled;
+static inline void synthesize_switch1_crossover(uint8_t l_lf, uint8_t l_hf,
+                                               uint8_t r_lf, uint8_t r_hf,
+                                               uint8_t &heavy_motor, uint8_t &light_motor) {
+    uint32_t lf_max = (l_lf > r_lf) ? l_lf : r_lf;
+    uint32_t lf_min = (l_lf > r_lf) ? r_lf : l_lf;
+    uint32_t lf_energy = lf_max + (lf_min / 4);
+
+    uint32_t hf_max = (l_hf > r_hf) ? l_hf : r_hf;
+    uint32_t hf_min = (l_hf > r_hf) ? r_hf : l_hf;
+    uint32_t hf_energy = hf_max + (hf_min / 4);
+
+    if (lf_energy < 8 && (lf_energy * 5 < hf_energy || lf_energy < 3)) {
+        lf_energy = 0;
+    }
+
+    uint32_t lf_combined = lf_energy;
+    if (lf_energy >= 8 && hf_energy > 0) {
+        lf_combined += (hf_energy * 25) / 100;
+    }
+
+    if (lf_combined == 0) {
+        heavy_motor = 0;
+    } else {
+        if (lf_combined > 80) lf_combined = 80;
+        uint32_t scaled = (uint32_t)(sqrtf((float)lf_combined / 80.0f) * 255.0f);
+        heavy_motor = (scaled > 255) ? 255 : (uint8_t)scaled;
+    }
+
+    if (hf_energy == 0) {
+        light_motor = 0;
+    } else {
+        if (hf_energy > 100) hf_energy = 100;
+        uint32_t scaled = (uint32_t)(((float)hf_energy / 100.0f) * 0.70f * 255.0f);
+        light_motor = (scaled > 255) ? 255 : (uint8_t)scaled;
+    }
 }
 #endif
 
@@ -855,11 +925,8 @@ void Switch2ProDriver::set_report(uint8_t report_id, hid_report_type_t report_ty
             extract_switch2_amplitudes(data, l_lf, l_hf);
             extract_switch2_amplitudes(data + 16, r_lf, r_hf);
 
-            uint32_t lf_combined = (l_lf > r_lf) ? l_lf : r_lf;
-            uint32_t hf_combined = (l_hf > r_hf) ? l_hf : r_hf;
-
-            uint8_t heavy_motor = scale_switch2_single(lf_combined > 1023 ? 1023 : (uint16_t)lf_combined);
-            uint8_t light_motor = scale_switch2_single(hf_combined > 1023 ? 1023 : (uint16_t)hf_combined);
+            uint8_t heavy_motor = 0, light_motor = 0;
+            synthesize_switch2_crossover(l_lf, l_hf, r_lf, r_hf, heavy_motor, light_motor);
             setSwitch2ProRumble(heavy_motor, light_motor);
 #else
             uint8_t left = decode_switch2_motor(data);
@@ -874,8 +941,8 @@ void Switch2ProDriver::set_report(uint8_t report_id, hid_report_type_t report_ty
 #if defined(HD_RUMBLE_FREQUENCY_CROSSOVER) && HD_RUMBLE_FREQUENCY_CROSSOVER
             uint16_t j_lf = 0, j_hf = 0;
             extract_switch2_amplitudes(data, j_lf, j_hf);
-            uint8_t heavy_motor = scale_switch2_single(j_lf);
-            uint8_t light_motor = scale_switch2_single(j_hf);
+            uint8_t heavy_motor = 0, light_motor = 0;
+            synthesize_switch2_crossover(j_lf, j_hf, 0, 0, heavy_motor, light_motor);
             setSwitch2ProRumble(heavy_motor, light_motor);
 #else
             uint8_t rumble = decode_switch2_motor(data);
@@ -895,11 +962,8 @@ void Switch2ProDriver::set_report(uint8_t report_id, hid_report_type_t report_ty
             extract_switch1_amplitudes(data + 1, l_lf, l_hf);
             extract_switch1_amplitudes(data + 5, r_lf, r_hf);
 
-            uint32_t lf_combined = (l_lf > r_lf) ? l_lf : r_lf;
-            uint32_t hf_combined = (l_hf > r_hf) ? l_hf : r_hf;
-
-            uint8_t heavy_motor = scale_switch1_single(lf_combined > 100 ? 100 : (uint8_t)lf_combined);
-            uint8_t light_motor = scale_switch1_single(hf_combined > 100 ? 100 : (uint8_t)hf_combined);
+            uint8_t heavy_motor = 0, light_motor = 0;
+            synthesize_switch1_crossover(l_lf, l_hf, r_lf, r_hf, heavy_motor, light_motor);
             setSwitch2ProRumble(heavy_motor, light_motor);
 #else
             uint8_t left = decode_switch1_motor(data + 1);
@@ -916,11 +980,8 @@ void Switch2ProDriver::set_report(uint8_t report_id, hid_report_type_t report_ty
             extract_switch1_amplitudes(data + 1, l_lf, l_hf);
             extract_switch1_amplitudes(data + 5, r_lf, r_hf);
 
-            uint32_t lf_combined = (l_lf > r_lf) ? l_lf : r_lf;
-            uint32_t hf_combined = (l_hf > r_hf) ? l_hf : r_hf;
-
-            uint8_t heavy_motor = scale_switch1_single(lf_combined > 100 ? 100 : (uint8_t)lf_combined);
-            uint8_t light_motor = scale_switch1_single(hf_combined > 100 ? 100 : (uint8_t)hf_combined);
+            uint8_t heavy_motor = 0, light_motor = 0;
+            synthesize_switch1_crossover(l_lf, l_hf, r_lf, r_hf, heavy_motor, light_motor);
             setSwitch2ProRumble(heavy_motor, light_motor);
 #else
             uint8_t left = decode_switch1_motor(data + 1);
