@@ -728,6 +728,29 @@ uint16_t Switch2ProDriver::get_report(uint8_t report_id, hid_report_type_t repor
     return 0;
 }
 
+static void extract_switch2_amplitudes(const uint8_t *d, uint16_t &out_lf, uint16_t &out_hf) {
+    uint16_t max_lf = 0;
+    uint16_t max_hf = 0;
+
+    for (int s = 0; s < 3; s++) {
+        const uint8_t *slice = &d[1 + s * 5];
+        const uint64_t v = (uint64_t)slice[0] |
+                          ((uint64_t)slice[1] << 8) |
+                          ((uint64_t)slice[2] << 16) |
+                          ((uint64_t)slice[3] << 24) |
+                          ((uint64_t)slice[4] << 32);
+
+        const uint16_t lf_amp = (v >> 10) & 0x3FF;
+        const uint16_t hf_amp = (v >> 30) & 0x3FF;
+
+        if (lf_amp > max_lf) max_lf = lf_amp;
+        if (hf_amp > max_hf) max_hf = hf_amp;
+    }
+
+    out_lf = max_lf;
+    out_hf = max_hf;
+}
+
 static uint8_t decode_switch2_motor(const uint8_t *d) {
     uint32_t peak_amp = 0;
 
@@ -753,6 +776,76 @@ static uint8_t decode_switch2_motor(const uint8_t *d) {
     return (scaled > 255) ? 255 : (uint8_t)scaled;
 }
 
+// Physical / Psychoacoustic HD Rumble -> Asymmetric Dual-ERM Frequency Crossover
+// Left ERM (Heavy Weight)  = Low-Frequency Bass & Heavy Impacts
+// Right ERM (Light Weight) = High-Frequency Texture & Crisp Clicks
+static void synthesize_switch2_crossover(const uint8_t *left_data, const uint8_t *right_data, uint8_t &out_heavy, uint8_t &out_light) {
+    uint16_t l_lf = 0, l_hf = 0;
+    uint16_t r_lf = 0, r_hf = 0;
+    if (left_data != nullptr)  extract_switch2_amplitudes(left_data, l_lf, l_hf);
+    if (right_data != nullptr) extract_switch2_amplitudes(right_data, r_lf, r_hf);
+
+    // 1. Binaural Spatial Aggregation (max + 1/4 min)
+    uint32_t lf_max = (l_lf > r_lf) ? l_lf : r_lf;
+    uint32_t lf_min = (l_lf > r_lf) ? r_lf : l_lf;
+    uint32_t lf_energy = lf_max + (lf_min / 4);
+
+    uint32_t hf_max = (l_hf > r_hf) ? l_hf : r_hf;
+    uint32_t hf_min = (l_hf > r_hf) ? r_hf : l_hf;
+    uint32_t hf_energy = hf_max + (hf_min / 4);
+
+    // 2. Transient Gate vs. Broadband Cross-feed:
+    // Switch LRA excursion scales as 1/f^2, so real games cap lf_amp around ~275-400
+    // while hf_amp reaches 500-800+ on sharp clicks (e.g. pistol shots).
+    // - If LF is weak (< 35) and dominated by HF (or < 15 noise), gate the heavy motor to 0
+    //   so crisp high-frequency clicks only spin the fast right motor.
+    // - If LF has real bass body (>= 35, e.g. railgun / explosion), cross-feed 25% of HF
+    //   into the heavy motor to reinforce broadband shocks.
+    if (lf_energy < 35 && (lf_energy * 5 < hf_energy || lf_energy < 15)) {
+        lf_energy = 0;
+    } else if (lf_energy >= 35) {
+        lf_energy += (hf_energy / 4);
+    }
+
+    // 3. Asymmetric Physical Normalization:
+    // Heavy (Left) motor: normalize against practical LF ceiling (400) with sqrtf curve.
+    if (lf_energy == 0) {
+        out_heavy = 0;
+    } else {
+        if (lf_energy > 400) lf_energy = 400;
+        uint32_t heavy_pwm = (uint32_t)(sqrtf((float)lf_energy / 400.0f) * 255.0f);
+        out_heavy = (heavy_pwm > 255) ? 255 : (uint8_t)heavy_pwm;
+    }
+
+    // Light (Right) motor: linear scaling against 1023 with 0.70x gain so high-frequency
+    // textures and pistol clicks stay crisp and lighter than heavy bass impacts.
+    if (hf_energy < 15) {
+        out_light = 0;
+    } else {
+        if (hf_energy > 1023) hf_energy = 1023;
+        uint32_t light_pwm = (hf_energy * 178) / 1023;
+        out_light = (light_pwm > 255) ? 255 : (uint8_t)light_pwm;
+    }
+}
+
+static void extract_switch1_amplitudes(const uint8_t *d, uint8_t &out_lf, uint8_t &out_hf) {
+    if (d[0] == 0x00 && d[1] == 0x01 && d[2] == 0x40 && d[3] == 0x40) {
+        out_lf = 0;
+        out_hf = 0;
+        return;
+    }
+    uint8_t hf_amp = (d[1] & 0xFE) >> 1;
+    if (hf_amp > 100) hf_amp = 100;
+
+    uint8_t lf_amp = 0;
+    if (d[3] >= 0x40) {
+        uint16_t step = ((uint16_t)(d[3] - 0x40) << 1) + ((d[2] & 0x80) ? 1 : 0);
+        lf_amp = (step > 100) ? 100 : (uint8_t)step;
+    }
+    out_lf = lf_amp;
+    out_hf = hf_amp;
+}
+
 // Backward-compatible Switch 1 HD rumble downmixing (for Switch 1 reports received in Switch 2 mode)
 static uint8_t decode_switch1_motor(const uint8_t *d) {
     if (d[0] == 0x00 && d[1] == 0x01 && d[2] == 0x40 && d[3] == 0x40) return 0;
@@ -771,6 +864,43 @@ static uint8_t decode_switch1_motor(const uint8_t *d) {
     return (scaled > 255) ? 255 : (uint8_t)scaled;
 }
 
+static void synthesize_switch1_crossover(const uint8_t *left_data, const uint8_t *right_data, uint8_t &out_heavy, uint8_t &out_light) {
+    uint8_t l_lf = 0, l_hf = 0;
+    uint8_t r_lf = 0, r_hf = 0;
+    extract_switch1_amplitudes(left_data, l_lf, l_hf);
+    extract_switch1_amplitudes(right_data, r_lf, r_hf);
+
+    uint32_t lf_max = (l_lf > r_lf) ? l_lf : r_lf;
+    uint32_t lf_min = (l_lf > r_lf) ? r_lf : l_lf;
+    uint32_t lf_energy = lf_max + (lf_min / 4);
+
+    uint32_t hf_max = (l_hf > r_hf) ? l_hf : r_hf;
+    uint32_t hf_min = (l_hf > r_hf) ? r_hf : l_hf;
+    uint32_t hf_energy = hf_max + (hf_min / 4);
+
+    if (lf_energy < 8 && (lf_energy * 4 < hf_energy || lf_energy < 3)) {
+        lf_energy = 0;
+    } else if (lf_energy >= 8) {
+        lf_energy += (hf_energy / 4);
+    }
+
+    if (lf_energy == 0) {
+        out_heavy = 0;
+    } else {
+        if (lf_energy > 80) lf_energy = 80;
+        uint32_t heavy_pwm = (uint32_t)(sqrtf((float)lf_energy / 80.0f) * 255.0f);
+        out_heavy = (heavy_pwm > 255) ? 255 : (uint8_t)heavy_pwm;
+    }
+
+    if (hf_energy < 3) {
+        out_light = 0;
+    } else {
+        if (hf_energy > 100) hf_energy = 100;
+        uint32_t light_pwm = (hf_energy * 178) / 100;
+        out_light = (light_pwm > 255) ? 255 : (uint8_t)light_pwm;
+    }
+}
+
 static void setSwitch2ProRumble(uint8_t left, uint8_t right) {
     Gamepad * processedGamepad = Storage::getInstance().GetProcessedGamepad();
     if (processedGamepad != nullptr) {
@@ -781,128 +911,6 @@ static void setSwitch2ProRumble(uint8_t left, uint8_t right) {
     }
     rumbleWatchdogActive = (left > 0 || right > 0);
 }
-
-#if defined(HD_RUMBLE_FREQUENCY_CROSSOVER) && HD_RUMBLE_FREQUENCY_CROSSOVER
-static void extract_switch2_amplitudes(const uint8_t *d, uint16_t &lf_peak, uint16_t &hf_peak) {
-    lf_peak = 0;
-    hf_peak = 0;
-    for (int s = 0; s < 3; s++) {
-        const uint8_t *slice = &d[1 + s * 5];
-        const uint64_t v = (uint64_t)slice[0] |
-                          ((uint64_t)slice[1] << 8) |
-                          ((uint64_t)slice[2] << 16) |
-                          ((uint64_t)slice[3] << 24) |
-                          ((uint64_t)slice[4] << 32);
-
-        const uint16_t lf = (v >> 10) & 0x3FF;
-        const uint16_t hf = (v >> 30) & 0x3FF;
-        if (lf > lf_peak) lf_peak = lf;
-        if (hf > hf_peak) hf_peak = hf;
-    }
-}
-
-static inline void synthesize_switch2_crossover(uint16_t l_lf, uint16_t l_hf,
-                                               uint16_t r_lf, uint16_t r_hf,
-                                               uint8_t &heavy_motor, uint8_t &light_motor) {
-    // 1. Two-handed energy combining: primary hand plus 25% contribution of secondary hand
-    uint32_t lf_max = (l_lf > r_lf) ? l_lf : r_lf;
-    uint32_t lf_min = (l_lf > r_lf) ? r_lf : l_lf;
-    uint32_t lf_energy = lf_max + (lf_min / 4);
-
-    uint32_t hf_max = (l_hf > r_hf) ? l_hf : r_hf;
-    uint32_t hf_min = (l_hf > r_hf) ? r_hf : l_hf;
-    uint32_t hf_energy = hf_max + (hf_min / 4);
-
-    // 2. Transient Gate: for sharp high-frequency clicks (e.g. pistol shots, UI clicks),
-    // if LF amplitude is negligible or overwhelmingly dominated by HF (>5:1 ratio with LF < 35),
-    // gate LF to 0 so the heavy motor does not twitch or rattle.
-    if (lf_energy < 35 && (lf_energy * 5 < hf_energy || lf_energy < 15)) {
-        lf_energy = 0;
-    }
-
-    // 3. Broadband Impact Cross-feed: when a heavy blast occurs (e.g. Railgun, explosion, shotgun),
-    // LF is active (>= 35) AND HF is active. Add 25% of HF energy to reinforce the heavy motor.
-    uint32_t lf_combined = lf_energy;
-    if (lf_energy >= 35 && hf_energy > 0) {
-        lf_combined += (hf_energy * 25) / 100;
-    }
-
-    // 4. Heavy Left Motor: normalized against realistic Switch 2 LF full scale (~400 out of 1023),
-    // shaped with convex sqrtf curve to compensate for ERM rotational inertia and centrifugal force (F ~ w^2).
-    if (lf_combined == 0) {
-        heavy_motor = 0;
-    } else {
-        if (lf_combined > 400) lf_combined = 400;
-        uint32_t scaled = (uint32_t)(sqrtf((float)lf_combined / 400.0f) * 255.0f);
-        heavy_motor = (scaled > 255) ? 255 : (uint8_t)scaled;
-    }
-
-    // 5. Light Right Motor: normalized against 1023 with a linear 0.70x scale.
-    // Keeps subtle textures and pistol clicks crisp and soft without screaming at 100% RPM.
-    if (hf_energy == 0) {
-        light_motor = 0;
-    } else {
-        if (hf_energy > 1023) hf_energy = 1023;
-        uint32_t scaled = (uint32_t)(((float)hf_energy / 1023.0f) * 0.70f * 255.0f);
-        light_motor = (scaled > 255) ? 255 : (uint8_t)scaled;
-    }
-}
-
-static void extract_switch1_amplitudes(const uint8_t *d, uint8_t &lf_amp, uint8_t &hf_amp) {
-    if (d[0] == 0x00 && d[1] == 0x01 && d[2] == 0x40 && d[3] == 0x40) {
-        lf_amp = 0;
-        hf_amp = 0;
-        return;
-    }
-    uint8_t hf = (d[1] & 0xFE) >> 1;
-    if (hf > 100) hf = 100;
-    hf_amp = hf;
-
-    uint8_t lf = 0;
-    if (d[3] >= 0x40) {
-        uint16_t step = ((uint16_t)(d[3] - 0x40) << 1) + ((d[2] & 0x80) ? 1 : 0);
-        lf = (step > 100) ? 100 : (uint8_t)step;
-    }
-    lf_amp = lf;
-}
-
-static inline void synthesize_switch1_crossover(uint8_t l_lf, uint8_t l_hf,
-                                               uint8_t r_lf, uint8_t r_hf,
-                                               uint8_t &heavy_motor, uint8_t &light_motor) {
-    uint32_t lf_max = (l_lf > r_lf) ? l_lf : r_lf;
-    uint32_t lf_min = (l_lf > r_lf) ? r_lf : l_lf;
-    uint32_t lf_energy = lf_max + (lf_min / 4);
-
-    uint32_t hf_max = (l_hf > r_hf) ? l_hf : r_hf;
-    uint32_t hf_min = (l_hf > r_hf) ? r_hf : l_hf;
-    uint32_t hf_energy = hf_max + (hf_min / 4);
-
-    if (lf_energy < 8 && (lf_energy * 5 < hf_energy || lf_energy < 3)) {
-        lf_energy = 0;
-    }
-
-    uint32_t lf_combined = lf_energy;
-    if (lf_energy >= 8 && hf_energy > 0) {
-        lf_combined += (hf_energy * 25) / 100;
-    }
-
-    if (lf_combined == 0) {
-        heavy_motor = 0;
-    } else {
-        if (lf_combined > 80) lf_combined = 80;
-        uint32_t scaled = (uint32_t)(sqrtf((float)lf_combined / 80.0f) * 255.0f);
-        heavy_motor = (scaled > 255) ? 255 : (uint8_t)scaled;
-    }
-
-    if (hf_energy == 0) {
-        light_motor = 0;
-    } else {
-        if (hf_energy > 100) hf_energy = 100;
-        uint32_t scaled = (uint32_t)(((float)hf_energy / 100.0f) * 0.70f * 255.0f);
-        light_motor = (scaled > 255) ? 255 : (uint8_t)scaled;
-    }
-}
-#endif
 
 void Switch2ProDriver::set_report(uint8_t report_id, hid_report_type_t report_type, uint8_t const *buffer, uint16_t bufsize) {
     if (bufsize == 0 || buffer == nullptr) return;
@@ -917,78 +925,78 @@ void Switch2ProDriver::set_report(uint8_t report_id, hid_report_type_t report_ty
         dataLen = bufsize - 1;
     }
 
+    const uint32_t rumbleMode = Storage::getInstance().getGamepadOptions().ermRumbleMode;
+
     if (switchReportID == 0x02) {
         // Pro Controller 2 Output Report (16 bytes Left + 16 bytes Right)
         if (dataLen >= 32) {
-#if defined(HD_RUMBLE_FREQUENCY_CROSSOVER) && HD_RUMBLE_FREQUENCY_CROSSOVER
-            uint16_t l_lf = 0, l_hf = 0, r_lf = 0, r_hf = 0;
-            extract_switch2_amplitudes(data, l_lf, l_hf);
-            extract_switch2_amplitudes(data + 16, r_lf, r_hf);
-
-            uint8_t heavy_motor = 0, light_motor = 0;
-            synthesize_switch2_crossover(l_lf, l_hf, r_lf, r_hf, heavy_motor, light_motor);
-            setSwitch2ProRumble(heavy_motor, light_motor);
-#else
-            uint8_t left = decode_switch2_motor(data);
-            uint8_t right = decode_switch2_motor(data + 16);
-            setSwitch2ProRumble(left, right);
-#endif
-            lastRumblePacketTime = to_ms_since_boot(get_absolute_time());
+            if (rumbleMode == 0) {
+                setSwitch2ProRumble(0, 0);
+            } else if (rumbleMode == 2) {
+                uint8_t left = 0, right = 0;
+                synthesize_switch2_crossover(data, data + 16, left, right);
+                setSwitch2ProRumble(left, right);
+                lastRumblePacketTime = to_ms_since_boot(get_absolute_time());
+            } else {
+                uint8_t left = decode_switch2_motor(data);
+                uint8_t right = decode_switch2_motor(data + 16);
+                setSwitch2ProRumble(left, right);
+                lastRumblePacketTime = to_ms_since_boot(get_absolute_time());
+            }
         }
     } else if (switchReportID == 0x01) {
         if (dataLen >= 16 && (data[0] & 0xF0) == 0x50) {
             // Joy-Con 2 Output Report (16 bytes HD rumble)
-#if defined(HD_RUMBLE_FREQUENCY_CROSSOVER) && HD_RUMBLE_FREQUENCY_CROSSOVER
-            uint16_t j_lf = 0, j_hf = 0;
-            extract_switch2_amplitudes(data, j_lf, j_hf);
-            uint8_t heavy_motor = 0, light_motor = 0;
-            synthesize_switch2_crossover(j_lf, j_hf, 0, 0, heavy_motor, light_motor);
-            setSwitch2ProRumble(heavy_motor, light_motor);
-#else
-            uint8_t rumble = decode_switch2_motor(data);
-            if (joyCon2Side == 1) {
-                setSwitch2ProRumble(rumble, 0);
-            } else if (joyCon2Side == 2) {
-                setSwitch2ProRumble(0, rumble);
+            if (rumbleMode == 0) {
+                setSwitch2ProRumble(0, 0);
+            } else if (rumbleMode == 2) {
+                uint8_t left = 0, right = 0;
+                synthesize_switch2_crossover(data, nullptr, left, right);
+                setSwitch2ProRumble(left, right);
+                lastRumblePacketTime = to_ms_since_boot(get_absolute_time());
             } else {
-                setSwitch2ProRumble(rumble, rumble);
+                uint8_t rumble = decode_switch2_motor(data);
+                if (joyCon2Side == 1) {
+                    setSwitch2ProRumble(rumble, 0);
+                } else if (joyCon2Side == 2) {
+                    setSwitch2ProRumble(0, rumble);
+                } else {
+                    setSwitch2ProRumble(rumble, rumble);
+                }
+                lastRumblePacketTime = to_ms_since_boot(get_absolute_time());
             }
-#endif
-            lastRumblePacketTime = to_ms_since_boot(get_absolute_time());
         } else if (dataLen >= 9) {
             // Backward-compatible Switch 1 Output Report 0x01
-#if defined(HD_RUMBLE_FREQUENCY_CROSSOVER) && HD_RUMBLE_FREQUENCY_CROSSOVER
-            uint8_t l_lf = 0, l_hf = 0, r_lf = 0, r_hf = 0;
-            extract_switch1_amplitudes(data + 1, l_lf, l_hf);
-            extract_switch1_amplitudes(data + 5, r_lf, r_hf);
-
-            uint8_t heavy_motor = 0, light_motor = 0;
-            synthesize_switch1_crossover(l_lf, l_hf, r_lf, r_hf, heavy_motor, light_motor);
-            setSwitch2ProRumble(heavy_motor, light_motor);
-#else
-            uint8_t left = decode_switch1_motor(data + 1);
-            uint8_t right = decode_switch1_motor(data + 5);
-            setSwitch2ProRumble(left, right);
-#endif
-            lastRumblePacketTime = to_ms_since_boot(get_absolute_time());
+            if (rumbleMode == 0) {
+                setSwitch2ProRumble(0, 0);
+            } else if (rumbleMode == 2) {
+                uint8_t left = 0, right = 0;
+                synthesize_switch1_crossover(data + 1, data + 5, left, right);
+                setSwitch2ProRumble(left, right);
+                lastRumblePacketTime = to_ms_since_boot(get_absolute_time());
+            } else {
+                uint8_t left = decode_switch1_motor(data + 1);
+                uint8_t right = decode_switch1_motor(data + 5);
+                setSwitch2ProRumble(left, right);
+                lastRumblePacketTime = to_ms_since_boot(get_absolute_time());
+            }
         }
     } else if (switchReportID == 0x10 || switchReportID == 0x80) {
         // Backward-compatible Switch 1 Output Report 0x10 / Feature 0x80
         if (dataLen >= 9) {
-#if defined(HD_RUMBLE_FREQUENCY_CROSSOVER) && HD_RUMBLE_FREQUENCY_CROSSOVER
-            uint8_t l_lf = 0, l_hf = 0, r_lf = 0, r_hf = 0;
-            extract_switch1_amplitudes(data + 1, l_lf, l_hf);
-            extract_switch1_amplitudes(data + 5, r_lf, r_hf);
-
-            uint8_t heavy_motor = 0, light_motor = 0;
-            synthesize_switch1_crossover(l_lf, l_hf, r_lf, r_hf, heavy_motor, light_motor);
-            setSwitch2ProRumble(heavy_motor, light_motor);
-#else
-            uint8_t left = decode_switch1_motor(data + 1);
-            uint8_t right = decode_switch1_motor(data + 5);
-            setSwitch2ProRumble(left, right);
-#endif
-            lastRumblePacketTime = to_ms_since_boot(get_absolute_time());
+            if (rumbleMode == 0) {
+                setSwitch2ProRumble(0, 0);
+            } else if (rumbleMode == 2) {
+                uint8_t left = 0, right = 0;
+                synthesize_switch1_crossover(data + 1, data + 5, left, right);
+                setSwitch2ProRumble(left, right);
+                lastRumblePacketTime = to_ms_since_boot(get_absolute_time());
+            } else {
+                uint8_t left = decode_switch1_motor(data + 1);
+                uint8_t right = decode_switch1_motor(data + 5);
+                setSwitch2ProRumble(left, right);
+                lastRumblePacketTime = to_ms_since_boot(get_absolute_time());
+            }
         }
     }
 }

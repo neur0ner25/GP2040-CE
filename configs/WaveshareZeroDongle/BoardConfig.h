@@ -103,7 +103,8 @@
 // Static persistent controller identity (prevents phantom controllers in Windows/Steam on reboot)
 #define WAVESHARE_STATIC_CONTROLLER_IDENTITY 1
 
-// HD Rumble Frequency Crossover mode: route Low Frequency (LF) -> Heavy Left motor, High Frequency (HF) -> Light Right motor
+// HD Rumble Mode: 0 = Off, 1 = Dual/Symmetric, 2 = Frequency Crossover (LF -> Left Heavy, HF -> Right Light)
+#define ERM_RUMBLE_MODE 2
 #define HD_RUMBLE_FREQUENCY_CROSSOVER 1
 
 // ERM Vibration Motor Tuning for 8BitDo gamepad (independent asymmetric motor dynamics)
