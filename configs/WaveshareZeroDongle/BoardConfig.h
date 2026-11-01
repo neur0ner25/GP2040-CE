@@ -97,8 +97,11 @@
 // Trigger Deadzone: activate ZL/ZR at 50% travel (128 of 255)
 #define SWITCH_TRIGGER_THRESHOLD 128
 
-// Optional Host Stick Deadzone for Diablo 2 / analog resting drift
-#define XBOX360_HOST_STICK_DEADZONE 1500
+// Optional Radial Host Stick Deadzone:
+// - Left stick: 1500 (~4.6% radial) to prevent resting drift in games without built-in deadzones (e.g., Diablo 2)
+// - Right stick: 0 (raw 1:1 passthrough for TMR/Hall Effect sticks in shooters like Call of Duty)
+#define XBOX360_HOST_LEFT_STICK_DEADZONE  1500
+#define XBOX360_HOST_RIGHT_STICK_DEADZONE 0
 
 // Static persistent controller identity (prevents phantom controllers in Windows/Steam on reboot)
 #define WAVESHARE_STATIC_CONTROLLER_IDENTITY 1

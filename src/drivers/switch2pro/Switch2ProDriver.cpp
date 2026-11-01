@@ -21,7 +21,8 @@
 #define CMD_TRANSPORT_USB     0x00
 #define CMD_ACK               0xF8
 #define CMD_HEADER_LEN        8
-#define CMD_BUFFER_LEN        64
+#define CMD_PACKET_LEN        64
+#define CMD_BUFFER_LEN        160
 #define CMD_REPLY_MAX         160
 
 #define VENDOR_REQ_DEVICE_INFO  0x02
@@ -48,7 +49,10 @@ typedef enum {
     CMD_UNKNOWN18    = 0x18,
 } Switch2ProCommand;
 
+static uint8_t cmdPacket[CMD_PACKET_LEN];
 static uint8_t cmdRequest[CMD_BUFFER_LEN];
+static uint16_t cmdRequestLen = 0;
+static uint16_t cmdExpectedLen = 0;
 static uint8_t cmdReply[CMD_REPLY_MAX];
 static uint16_t cmdReplyLen;
 static bool cmdReplyPending;
@@ -64,6 +68,9 @@ static uint8_t deviceInfo[sizeof(switch2pro_device_info)];
 static uint8_t btAddressReversed[sizeof(switch2pro_bt_address_reversed)];
 static uint8_t deviceKey[sizeof(switch2pro_device_key)];
 static uint8_t chargingGripData[sizeof(switch2pro_charging_grip_data)];
+static uint8_t userCalibData[0x80];
+static bool userCalibDirty = false;
+static uint32_t lastCalibActivityMs = 0;
 static const char *productString;
 static uint8_t firmwareType;
 
@@ -76,7 +83,14 @@ static uint32_t lastRumblePacketTime = 0;
 
 static void setSwitch2ProRumble(uint8_t left, uint8_t right);
 
+static void markUserCalibDirty() {
+    userCalibDirty = true;
+    lastCalibActivityMs = to_ms_since_boot(get_absolute_time());
+}
+
 static void resetProtocolState() {
+    cmdRequestLen = 0;
+    cmdExpectedLen = 0;
     cmdReplyLen = 0;
     cmdReplyPending = false;
     reportsEnabled = true;
@@ -107,19 +121,34 @@ static void overlayFlash(uint32_t address, uint8_t *out, uint16_t length, uint32
     }
 }
 
+static bool writeOverlayFlash(uint32_t address, const uint8_t *in, uint16_t length, uint32_t blockAddress, uint8_t *block, uint16_t blockLen) {
+    bool modified = false;
+    for (uint16_t i = 0; i < length; i++) {
+        uint32_t a = address + i;
+        if (a >= blockAddress && a < blockAddress + blockLen) {
+            if (block[a - blockAddress] != in[i]) {
+                block[a - blockAddress] = in[i];
+                modified = true;
+            }
+        }
+    }
+    return modified;
+}
+
 static void replyFlashRead(const uint8_t *req) {
-    uint8_t length = req[8];
-    if (length > 0x40)
-        length = 0x40;
+    uint8_t length = (req[3] == 0x01) ? 0x40 : req[8];
+    if (length > 0x50)
+        length = 0x50;
     uint32_t address = req[12] | (req[13] << 8) | (req[14] << 16) | ((uint32_t)req[15] << 24);
 
-    uint8_t payload[8 + 0x40];
+    uint8_t payload[8 + 0x50];
     memset(payload, 0x00, 8);
     payload[0] = length;
     memcpy(&payload[4], &req[12], 4);
     uint8_t *data = &payload[8];
     memset(data, 0xFF, length);
     overlayFlash(address, data, length, 0x13000, factoryData, sizeof(factoryData));
+    overlayFlash(address, data, length, 0x1FC000, userCalibData, sizeof(userCalibData));
     if (joyCon2Side == 1) {
         overlayFlash(address, data, length, 0x13040, switch2_joycon2_left_flash_13040, sizeof(switch2_joycon2_left_flash_13040));
         overlayFlash(address, data, length, 0x13060, switch2_joycon2_left_flash_13060, sizeof(switch2_joycon2_left_flash_13060));
@@ -200,13 +229,37 @@ static void handleCommand(const uint8_t *req) {
             break;
         case CMD_FLASH_MEMORY:
             if (sub == 0x01 || sub == 0x04) {
+                if (userCalibDirty) {
+                    lastCalibActivityMs = to_ms_since_boot(get_absolute_time());
+                }
                 replyFlashRead(req);
             } else if (sub == 0x02) {
+                uint32_t address = req[12] | (req[13] << 8) | (req[14] << 16) | ((uint32_t)req[15] << 24);
+                if (writeOverlayFlash(address, &req[16], 0x40, 0x1FC000, userCalibData, sizeof(userCalibData))) {
+                    markUserCalibDirty();
+                }
                 setReply(command, sub, &req[8], 8);
             } else if (sub == 0x03) {
+                uint32_t addr1 = req[12] | (req[13] << 8) | (req[14] << 16) | ((uint32_t)req[15] << 24);
+                uint32_t addr2 = req[8]  | (req[9]  << 8) | (req[10] << 16) | ((uint32_t)req[11] << 24);
+                if (((addr1 & 0xFFFFF000u) == 0x1FC000u) || ((addr2 & 0xFFFFF000u) == 0x1FC000u)) {
+                    for (size_t i = 0; i < sizeof(userCalibData); i++) {
+                        if (userCalibData[i] != 0xFF) {
+                            userCalibData[i] = 0xFF;
+                            markUserCalibDirty();
+                        }
+                    }
+                }
                 const uint8_t payload[4] = { };
                 setReply(command, sub, payload, sizeof(payload));
             } else if (sub == 0x05) {
+                uint8_t wlen = req[8];
+                if (wlen > CMD_BUFFER_LEN - 16)
+                    wlen = CMD_BUFFER_LEN - 16;
+                uint32_t address = req[12] | (req[13] << 8) | (req[14] << 16) | ((uint32_t)req[15] << 24);
+                if (writeOverlayFlash(address, &req[16], wlen, 0x1FC000, userCalibData, sizeof(userCalibData))) {
+                    markUserCalibDirty();
+                }
                 uint8_t payload[8] = { };
                 memcpy(&payload[4], &req[12], 4);
                 setReply(command, sub, payload, sizeof(payload));
@@ -398,7 +451,7 @@ static uint16_t switch2pro_open(uint8_t rhport, tusb_desc_interface_t const *itf
             tusb_desc_endpoint_t const *ep = (tusb_desc_endpoint_t const *)p;
             TU_ASSERT(usbd_edpt_open(rhport, ep), 0);
             if (ep->bEndpointAddress == SWITCH2_PRO_EP_BULK_OUT)
-                usbd_edpt_xfer(rhport, SWITCH2_PRO_EP_BULK_OUT, cmdRequest, sizeof(cmdRequest), false);
+                usbd_edpt_xfer(rhport, SWITCH2_PRO_EP_BULK_OUT, cmdPacket, sizeof(cmdPacket), false);
         }
         len += tu_desc_len(p);
         p = tu_desc_next(p);
@@ -419,16 +472,49 @@ static bool switch2pro_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t re
     switch (ep_addr) {
         case SWITCH2_PRO_EP_BULK_OUT:
             // Ignore firmware updates so the console fails cleanly instead of hanging
-            if (result == XFER_RESULT_SUCCESS && xferred_bytes >= 4 &&
-                    cmdRequest[1] == CMD_DIRECTION_REQUEST && cmdRequest[2] == CMD_TRANSPORT_USB &&
-                    cmdRequest[0] != CMD_FW_UPDATE) {
-                if (xferred_bytes < sizeof(cmdRequest))
-                    memset(&cmdRequest[xferred_bytes], 0, sizeof(cmdRequest) - xferred_bytes);
-                handleCommand(cmdRequest);
-                cmdReplyPending = true;
-                sendReply(rhport);
+            if (result == XFER_RESULT_SUCCESS && xferred_bytes > 0) {
+                if (cmdRequestLen > 0) {
+                    uint16_t copyLen = (uint16_t)xferred_bytes;
+                    if (cmdRequestLen + copyLen > CMD_BUFFER_LEN)
+                        copyLen = CMD_BUFFER_LEN - cmdRequestLen;
+                    memcpy(&cmdRequest[cmdRequestLen], cmdPacket, copyLen);
+                    cmdRequestLen += copyLen;
+                    if (cmdRequestLen >= cmdExpectedLen || xferred_bytes < CMD_PACKET_LEN) {
+                        if (cmdRequestLen < CMD_BUFFER_LEN)
+                            memset(&cmdRequest[cmdRequestLen], 0, CMD_BUFFER_LEN - cmdRequestLen);
+                        cmdRequestLen = 0;
+                        cmdExpectedLen = 0;
+                        handleCommand(cmdRequest);
+                        cmdReplyPending = true;
+                        sendReply(rhport);
+                    }
+                } else if (xferred_bytes >= 4 &&
+                           cmdPacket[1] == CMD_DIRECTION_REQUEST &&
+                           cmdPacket[2] == CMD_TRANSPORT_USB &&
+                           cmdPacket[0] != CMD_FW_UPDATE) {
+                    uint16_t expected = (xferred_bytes >= CMD_HEADER_LEN)
+                        ? (uint16_t)(CMD_HEADER_LEN + cmdPacket[5])
+                        : (uint16_t)xferred_bytes;
+                    if (expected > CMD_BUFFER_LEN)
+                        expected = CMD_BUFFER_LEN;
+                    uint16_t copyLen = (xferred_bytes <= CMD_BUFFER_LEN) ? (uint16_t)xferred_bytes : (uint16_t)CMD_BUFFER_LEN;
+                    memcpy(cmdRequest, cmdPacket, copyLen);
+                    if (copyLen < expected && xferred_bytes == CMD_PACKET_LEN) {
+                        cmdRequestLen = copyLen;
+                        cmdExpectedLen = expected;
+                    } else {
+                        if (copyLen < CMD_BUFFER_LEN)
+                            memset(&cmdRequest[copyLen], 0, CMD_BUFFER_LEN - copyLen);
+                        handleCommand(cmdRequest);
+                        cmdReplyPending = true;
+                        sendReply(rhport);
+                    }
+                }
+            } else {
+                cmdRequestLen = 0;
+                cmdExpectedLen = 0;
             }
-            usbd_edpt_xfer(rhport, SWITCH2_PRO_EP_BULK_OUT, cmdRequest, sizeof(cmdRequest), false);
+            usbd_edpt_xfer(rhport, SWITCH2_PRO_EP_BULK_OUT, cmdPacket, sizeof(cmdPacket), false);
             return true;
         case SWITCH2_PRO_EP_BULK_IN:
             sendReply(rhport);
@@ -453,6 +539,7 @@ static void loadIdentity() {
     memcpy(deviceDescriptor, switch2pro_device_descriptor, sizeof(deviceDescriptor));
     memcpy(factoryData, switch2pro_factory_data, sizeof(factoryData));
     memcpy(chargingGripData, switch2pro_charging_grip_data, sizeof(chargingGripData));
+    memset(userCalibData, 0xFF, sizeof(userCalibData));
 
     memcpy(btAddressReversed, switch2pro_bt_address_reversed, sizeof(btAddressReversed));
 #ifdef WAVESHARE_STATIC_CONTROLLER_IDENTITY
@@ -485,6 +572,13 @@ static void loadIdentity() {
     firmwareType = SWITCH2_FW_TYPE_PRO;
 
     const GamepadOptions & options = Storage::getInstance().getGamepadOptions();
+    if (options.has_switch2ProUserCalib && options.switch2ProUserCalib.size == sizeof(userCalibData)) {
+        memcpy(userCalibData, options.switch2ProUserCalib.bytes, sizeof(userCalibData));
+    } else {
+        memset(userCalibData, 0xFF, sizeof(userCalibData));
+    }
+    userCalibDirty = false;
+
     if (options.switch2ProIdentity == SWITCH2_PRO_IDENTITY_GAMECUBE) {
         setProductId(&deviceDescriptor[SWITCH2_PRO_DEVICE_PID_OFFSET], SWITCH2_GAMECUBE_PRODUCT_ID);
         setProductId(&factoryData[SWITCH2_PRO_FACTORY_PID_OFFSET], SWITCH2_GAMECUBE_PRODUCT_ID);
@@ -575,8 +669,48 @@ void Switch2ProDriver::initialize() {
 }
 
 static void packStick(uint8_t *out, uint16_t x16, uint16_t y16) {
-    const uint16_t x = x16 >> 4;
-    const uint16_t y = SWITCH2_PRO_STICK_MAX - (y16 >> 4);
+    constexpr int32_t CENTER = 2048;
+    constexpr int32_t RANGE  = 1600;
+
+    const int32_t dx = static_cast<int32_t>(x16) - 32768;
+    const int32_t dy = 32768 - static_cast<int32_t>(y16);
+
+    uint16_t x = CENTER;
+    uint16_t y = CENTER;
+
+    if (dx != 0 || dy != 0) {
+        const float fx = static_cast<float>(dx) / ((dx >= 0) ? 32767.0f : 32768.0f);
+        const float fy = static_cast<float>(dy) / ((dy >= 0) ? 32768.0f : 32767.0f);
+        const float fx2 = fx * fx;
+        const float fy2 = fy * fy;
+        const float r2 = fx2 + fy2;
+        const float r = sqrtf(r2);
+
+        if (r > 1e-6f) {
+            const float sin2_2theta = (4.0f * fx2 * fy2) / (r2 * r2);
+
+            // Compensate for 8BitDo Hall/TMR cross-axis magnetic attenuation on 45-deg diagonals
+            // (where raw r drops to ~0.78), then clamp r_eff strictly to 1.0f so that along the
+            // entire 360-degree outer gate the Euclidean radius sqrt(dx^2 + dy^2) is an exact
+            // constant 1600.0 at 0/90/180/270 AND at 45/135/225/315.
+            float r_eff = r * (1.0f + 0.30f * sin2_2theta);
+            if (r_eff > 1.0f) r_eff = 1.0f;
+
+            const float scale = r_eff / r;
+
+            int32_t sx = CENTER + static_cast<int32_t>(lroundf(fx * scale * RANGE));
+            int32_t sy = CENTER + static_cast<int32_t>(lroundf(fy * scale * RANGE));
+
+            if (sx < CENTER - RANGE) sx = CENTER - RANGE;
+            else if (sx > CENTER + RANGE) sx = CENTER + RANGE;
+            if (sy < CENTER - RANGE) sy = CENTER - RANGE;
+            else if (sy > CENTER + RANGE) sy = CENTER + RANGE;
+
+            x = static_cast<uint16_t>(sx);
+            y = static_cast<uint16_t>(sy);
+        }
+    }
+
     out[0] = x & 0xFF;
     out[1] = ((x >> 8) & 0x0F) | ((y & 0x0F) << 4);
     out[2] = (y >> 4) & 0xFF;
@@ -588,6 +722,18 @@ bool Switch2ProDriver::process(Gamepad * gamepad) {
     processedGamepad->auxState.playerID.ledValue = playerLedMask;
     processedGamepad->auxState.playerID.value = playerLedMask;
     const uint32_t now = to_ms_since_boot(get_absolute_time());
+    if (userCalibDirty && !cmdReplyPending && (uint32_t)(now - lastCalibActivityMs) >= 500) {
+        userCalibDirty = false;
+        GamepadOptions & options = Storage::getInstance().getGamepadOptions();
+        if (!options.has_switch2ProUserCalib ||
+            options.switch2ProUserCalib.size != sizeof(userCalibData) ||
+            memcmp(options.switch2ProUserCalib.bytes, userCalibData, sizeof(userCalibData)) != 0) {
+            memcpy(options.switch2ProUserCalib.bytes, userCalibData, sizeof(userCalibData));
+            options.switch2ProUserCalib.size = sizeof(userCalibData);
+            options.has_switch2ProUserCalib = true;
+            Storage::getInstance().save(true);
+        }
+    }
     if (rumbleWatchdogActive && (now - lastRumblePacketTime) > 1000) {
         setSwitch2ProRumble(0, 0);
         rumbleWatchdogActive = false;

@@ -4,6 +4,7 @@
 #include "tusb.h"
 #include "drivers/shared/xinput_host.h"
 #include <storagemanager.h>
+#include <cmath>
 
 bool Xbox360Host::match(uint8_t dev_addr, uint8_t instance, uint16_t vendor_id, uint16_t product_id, uint8_t controller_type) {    
     if ( controller_type == 1 ) {    
@@ -231,14 +232,47 @@ void Xbox360Host::update() {
     }
 }
 
+#if defined(XBOX360_HOST_LEFT_STICK_DEADZONE) || defined(XBOX360_HOST_RIGHT_STICK_DEADZONE) || defined(XBOX360_HOST_STICK_DEADZONE)
+#ifndef XBOX360_HOST_LEFT_STICK_DEADZONE
 #ifdef XBOX360_HOST_STICK_DEADZONE
-static inline int16_t apply_deadzone(int16_t val, int16_t deadzone) {
-    if (val > deadzone) {
-        return static_cast<int16_t>(((int32_t)(val - deadzone) * 32767) / (32767 - deadzone));
-    } else if (val < -deadzone) {
-        return static_cast<int16_t>(((int32_t)(val + deadzone) * 32768) / (32768 - deadzone));
+#define XBOX360_HOST_LEFT_STICK_DEADZONE XBOX360_HOST_STICK_DEADZONE
+#else
+#define XBOX360_HOST_LEFT_STICK_DEADZONE 0
+#endif
+#endif
+
+#ifndef XBOX360_HOST_RIGHT_STICK_DEADZONE
+#ifdef XBOX360_HOST_STICK_DEADZONE
+#define XBOX360_HOST_RIGHT_STICK_DEADZONE XBOX360_HOST_STICK_DEADZONE
+#else
+#define XBOX360_HOST_RIGHT_STICK_DEADZONE 0
+#endif
+#endif
+
+static inline void apply_radial_deadzone(int16_t in_x, int16_t in_y, int16_t deadzone, int16_t &out_x, int16_t &out_y) {
+    if (deadzone <= 0) {
+        out_x = in_x;
+        out_y = in_y;
+        return;
     }
-    return 0;
+    const float fx = static_cast<float>(in_x);
+    const float fy = static_cast<float>(in_y);
+    const float mag = sqrtf(fx * fx + fy * fy);
+    const float dz = static_cast<float>(deadzone);
+    if (mag <= dz) {
+        out_x = 0;
+        out_y = 0;
+        return;
+    }
+    const float scale = ((mag - dz) / (32767.0f - dz)) * (32767.0f / mag);
+    int32_t sx = static_cast<int32_t>(lroundf(fx * scale));
+    int32_t sy = static_cast<int32_t>(lroundf(fy * scale));
+    if (sx > 32767) sx = 32767;
+    else if (sx < -32768) sx = -32768;
+    if (sy > 32767) sy = 32767;
+    else if (sy < -32768) sy = -32768;
+    out_x = static_cast<int16_t>(sx);
+    out_y = static_cast<int16_t>(sy);
 }
 #endif
 
@@ -276,12 +310,10 @@ void Xbox360Host::process(uint8_t const* report, uint16_t len) {
     if (controller_report.buttons2 & XBOX_MASK_X) _controller_host_state.buttons |= GAMEPAD_MASK_B3;
     if (controller_report.buttons2 & XBOX_MASK_Y) _controller_host_state.buttons |= GAMEPAD_MASK_B4;
 
-#ifdef XBOX360_HOST_STICK_DEADZONE
-    const int16_t DEADZONE = XBOX360_HOST_STICK_DEADZONE;
-    int16_t lx = apply_deadzone(controller_report.lx, DEADZONE);
-    int16_t ly = apply_deadzone(controller_report.ly, DEADZONE);
-    int16_t rx = apply_deadzone(controller_report.rx, DEADZONE);
-    int16_t ry = apply_deadzone(controller_report.ry, DEADZONE);
+#if defined(XBOX360_HOST_LEFT_STICK_DEADZONE) || defined(XBOX360_HOST_RIGHT_STICK_DEADZONE) || defined(XBOX360_HOST_STICK_DEADZONE)
+    int16_t lx = 0, ly = 0, rx = 0, ry = 0;
+    apply_radial_deadzone(controller_report.lx, controller_report.ly, XBOX360_HOST_LEFT_STICK_DEADZONE, lx, ly);
+    apply_radial_deadzone(controller_report.rx, controller_report.ry, XBOX360_HOST_RIGHT_STICK_DEADZONE, rx, ry);
 
     int32_t inv_ly = (ly == INT16_MIN) ? 32767 : -ly;
     int32_t inv_ry = (ry == INT16_MIN) ? 32767 : -ry;

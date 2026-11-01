@@ -87,6 +87,7 @@ message GamepadOptions
     optional uint32 ermRumbleRightMotorFloor = 66;
     optional uint32 ermRumbleRightKickstartMs = 67;
     optional uint32 ermRumbleRightSustainMs = 68;
+    optional bytes switch2ProUserCalib = 69 [(nanopb).max_size = 128];
 }
 
 message KeyboardMapping
