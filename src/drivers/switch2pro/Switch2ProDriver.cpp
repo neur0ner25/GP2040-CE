@@ -68,7 +68,7 @@ static uint8_t deviceInfo[sizeof(switch2pro_device_info)];
 static uint8_t btAddressReversed[sizeof(switch2pro_bt_address_reversed)];
 static uint8_t deviceKey[sizeof(switch2pro_device_key)];
 static uint8_t chargingGripData[sizeof(switch2pro_charging_grip_data)];
-static uint8_t userCalibData[0x80];
+static uint8_t userCalibData[0x100];
 static bool userCalibDirty = false;
 static uint32_t lastCalibActivityMs = 0;
 static const char *productString;
@@ -886,8 +886,8 @@ static void extract_switch2_amplitudes(const uint8_t *d, uint16_t &out_lf, uint1
                           ((uint64_t)slice[3] << 24) |
                           ((uint64_t)slice[4] << 32);
 
-        const uint16_t lf_amp = (v >> 10) & 0x3FF;
-        const uint16_t hf_amp = (v >> 30) & 0x3FF;
+        const uint16_t hf_amp = (v >> 10) & 0x3FF;
+        const uint16_t lf_amp = (v >> 30) & 0x3FF;
 
         if (lf_amp > max_lf) max_lf = lf_amp;
         if (hf_amp > max_hf) max_hf = hf_amp;
@@ -908,8 +908,8 @@ static uint8_t decode_switch2_motor(const uint8_t *d) {
                           ((uint64_t)slice[3] << 24) |
                           ((uint64_t)slice[4] << 32);
 
-        const uint16_t lf_amp = (v >> 10) & 0x3FF;
-        const uint16_t hf_amp = (v >> 30) & 0x3FF;
+        const uint16_t hf_amp = (v >> 10) & 0x3FF;
+        const uint16_t lf_amp = (v >> 30) & 0x3FF;
 
         uint32_t slice_total = (uint32_t)lf_amp + ((uint32_t)hf_amp * 3 / 4);
         if (slice_total > peak_amp) peak_amp = slice_total;
