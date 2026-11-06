@@ -120,7 +120,6 @@ add_executable(${PROJECT_NAME}
   src/gamepad/GamepadState.cpp
   src/addonmanager.cpp
   src/playerleds.cpp
-  src/interfaces/i2c/i2cdevicebase.cpp
   src/drivers/shared/xinput_host.cpp
   src/drivers/switch2pro/Switch2ProDriver.cpp
   src/drivermanager.cpp
@@ -182,20 +181,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
   headers/drivers
   headers/drivers/shared
   headers/events
-  headers/interfaces
-  headers/interfaces/i2c
-  headers/interfaces/i2c/ads1115
-  headers/interfaces/i2c/ads1219
-  headers/interfaces/i2c/pcf8575
-  headers/interfaces/i2c/ssd1306
-  headers/interfaces/i2c/wiiextension
   headers/gamepad
-  headers/display
-  headers/display/fonts
-  headers/display/ui
-  headers/display/ui/static
-  headers/display/ui/elements
-  headers/display/ui/screens
   headers/animationstation
   headers/animationstation/effects
   headers/hosts

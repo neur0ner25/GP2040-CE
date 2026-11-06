@@ -18,7 +18,6 @@
 #include "addons/dualdirectional.h"
 #include "addons/tilt.h"
 #include "addons/focus_mode.h"
-#include "addons/display.h"
 #include "addons/keyboard_host.h"
 #include "addons/neopicoleds.h"
 #include "addons/pleds.h"
@@ -29,8 +28,97 @@
 #include "addons/turbo.h"
 #include "addons/input_macro.h"
 #include "addons/rotaryencoder.h"
-#include "addons/i2c_gpio_pcf8575.h"
 #include "addons/drv8833_rumble.h"
+
+#ifndef HAS_I2C_DISPLAY
+#define HAS_I2C_DISPLAY 0
+#endif
+#ifndef DISPLAY_I2C_BLOCK
+#define DISPLAY_I2C_BLOCK 0
+#endif
+#ifndef DISPLAY_I2C_ADDR
+#define DISPLAY_I2C_ADDR 0x3C
+#endif
+#ifndef I2C_SPEED
+#define I2C_SPEED 400000
+#endif
+#ifndef BUTTON_LAYOUT
+#define BUTTON_LAYOUT BUTTON_LAYOUT_STICK
+#endif
+#ifndef BUTTON_LAYOUT_RIGHT
+#define BUTTON_LAYOUT_RIGHT BUTTON_LAYOUT_ARCADE
+#endif
+#ifndef DISPLAY_TURN_OFF_WHEN_SUSPENDED
+#define DISPLAY_TURN_OFF_WHEN_SUSPENDED 0
+#endif
+#ifndef DISPLAY_INPUT_MODE
+#define DISPLAY_INPUT_MODE 1
+#endif
+#ifndef DISPLAY_TURBO_MODE
+#define DISPLAY_TURBO_MODE 1
+#endif
+#ifndef DISPLAY_DPAD_MODE
+#define DISPLAY_DPAD_MODE 1
+#endif
+#ifndef DISPLAY_SOCD_MODE
+#define DISPLAY_SOCD_MODE 1
+#endif
+#ifndef DISPLAY_MACRO_MODE
+#define DISPLAY_MACRO_MODE 1
+#endif
+#ifndef DISPLAY_PROFILE_MODE
+#define DISPLAY_PROFILE_MODE 0
+#endif
+#ifndef INPUT_HISTORY_ENABLED
+#define INPUT_HISTORY_ENABLED 0
+#endif
+#ifndef INPUT_HISTORY_LENGTH
+#define INPUT_HISTORY_LENGTH 21
+#endif
+#ifndef INPUT_HISTORY_COL
+#define INPUT_HISTORY_COL 0
+#endif
+#ifndef INPUT_HISTORY_ROW
+#define INPUT_HISTORY_ROW 7
+#endif
+#ifndef SPLASH_MODE
+#define SPLASH_MODE 0
+#endif
+#ifndef SPLASH_CHOICE
+#define SPLASH_CHOICE 0
+#endif
+#ifndef SPLASH_DURATION
+#define SPLASH_DURATION 7500
+#endif
+#ifndef DEFAULT_SPLASH
+#define DEFAULT_SPLASH 0x00
+#endif
+#ifndef DISPLAY_SIZE
+#define DISPLAY_SIZE 0
+#endif
+#ifndef DISPLAY_FLIP
+#define DISPLAY_FLIP 0
+#endif
+#ifndef DISPLAY_INVERT
+#define DISPLAY_INVERT 0
+#endif
+#ifndef DISPLAY_SAVER_TIMEOUT
+#define DISPLAY_SAVER_TIMEOUT 0
+#endif
+#ifndef DISPLAY_SAVER_MODE
+#define DISPLAY_SAVER_MODE 0
+#endif
+#ifndef DISPLAY_LAYOUT_ORIENTATION
+#define DISPLAY_LAYOUT_ORIENTATION 0
+#endif
+#ifndef DISPLAY_CONTRAST
+#define DISPLAY_CONTRAST 0xFF
+#endif
+
+#ifndef I2C_PCF8575_ENABLED
+#define I2C_PCF8575_ENABLED 0
+#define I2C_PCF8575_BLOCK 0
+#endif
 
 #ifndef I2C_ANALOG1115_ENABLED
 #define I2C_ANALOG1115_ENABLED 0
@@ -53,14 +141,14 @@
 
 #ifndef I2C_ANALOG1219_ENABLED
 #define I2C_ANALOG1219_ENABLED 0
-#define I2C_ANALOG1219_BLOCK i2c0
+#define I2C_ANALOG1219_BLOCK 0
 #define I2C_ANALOG1219_ADDRESS 0x40
 #define I2C_ANALOG1219_SPEED 400000
 #endif
 
 #ifndef SPI_ANALOG1256_ENABLED
 #define SPI_ANALOG1256_ENABLED 0
-#define SPI_ANALOG1256_BLOCK spi0
+#define SPI_ANALOG1256_BLOCK 0
 #define SPI_ANALOG1256_CS_PIN -1
 #define SPI_ANALOG1256_DRDY_PIN -1
 #define ADS1256_MAX_3V 3.3f
@@ -68,8 +156,66 @@
 
 #ifndef WII_EXTENSION_ENABLED
 #define WII_EXTENSION_ENABLED 0
-#define WII_EXTENSION_I2C_BLOCK i2c0
+#define WII_EXTENSION_I2C_BLOCK 0
 #define WII_EXTENSION_I2C_SPEED 400000
+#endif
+
+#ifndef I2C0_ENABLED
+#define I2C0_ENABLED 0
+#endif
+#ifndef I2C0_PIN_SDA
+#define I2C0_PIN_SDA -1
+#endif
+#ifndef I2C0_PIN_SCL
+#define I2C0_PIN_SCL -1
+#endif
+#ifndef I2C0_SPEED
+#define I2C0_SPEED 400000
+#endif
+
+#ifndef I2C1_ENABLED
+#define I2C1_ENABLED 0
+#endif
+#ifndef I2C1_PIN_SDA
+#define I2C1_PIN_SDA -1
+#endif
+#ifndef I2C1_PIN_SCL
+#define I2C1_PIN_SCL -1
+#endif
+#ifndef I2C1_SPEED
+#define I2C1_SPEED 400000
+#endif
+
+#ifndef SPI0_ENABLED
+#define SPI0_ENABLED 0
+#endif
+#ifndef SPI0_PIN_RX
+#define SPI0_PIN_RX -1
+#endif
+#ifndef SPI0_PIN_CS
+#define SPI0_PIN_CS -1
+#endif
+#ifndef SPI0_PIN_SCK
+#define SPI0_PIN_SCK -1
+#endif
+#ifndef SPI0_PIN_TX
+#define SPI0_PIN_TX -1
+#endif
+
+#ifndef SPI1_ENABLED
+#define SPI1_ENABLED 0
+#endif
+#ifndef SPI1_PIN_RX
+#define SPI1_PIN_RX -1
+#endif
+#ifndef SPI1_PIN_CS
+#define SPI1_PIN_CS -1
+#endif
+#ifndef SPI1_PIN_SCK
+#define SPI1_PIN_SCK -1
+#endif
+#ifndef SPI1_PIN_TX
+#define SPI1_PIN_TX -1
 #endif
 
 #ifndef SNES_PAD_ENABLED
@@ -748,7 +894,7 @@ void ConfigUtils::initUnsetPropertiesWithDefaults(Config& config)
 
     // displayOptions
     INIT_UNSET_PROPERTY(config.displayOptions, enabled, !!HAS_I2C_DISPLAY);
-    INIT_UNSET_PROPERTY(config.displayOptions, deprecatedI2cBlock, (DISPLAY_I2C_BLOCK == i2c0) ? 0 : 1);
+    INIT_UNSET_PROPERTY(config.displayOptions, deprecatedI2cBlock, 0);
     INIT_UNSET_PROPERTY(config.displayOptions, deprecatedI2cSDAPin, -1);
     INIT_UNSET_PROPERTY(config.displayOptions, deprecatedI2cSCLPin, -1);
     INIT_UNSET_PROPERTY(config.displayOptions, deprecatedI2cAddress, DISPLAY_I2C_ADDR);
@@ -787,8 +933,8 @@ void ConfigUtils::initUnsetPropertiesWithDefaults(Config& config)
     INIT_UNSET_PROPERTY(config.displayOptions, inputHistoryCol, INPUT_HISTORY_COL);
     INIT_UNSET_PROPERTY(config.displayOptions, inputHistoryRow, INPUT_HISTORY_ROW);
 
-    INIT_UNSET_PROPERTY(config.displayOptions, splashMode, SPLASH_MODE);
-    INIT_UNSET_PROPERTY(config.displayOptions, splashChoice, SPLASH_CHOICE);
+    INIT_UNSET_PROPERTY(config.displayOptions, splashMode, static_cast<SplashMode>(SPLASH_MODE));
+    INIT_UNSET_PROPERTY(config.displayOptions, splashChoice, static_cast<SplashChoice>(SPLASH_CHOICE));
     INIT_UNSET_PROPERTY(config.displayOptions, splashDuration, SPLASH_DURATION);
 	const unsigned char defaultSplash[] = { DEFAULT_SPLASH };
     INIT_UNSET_PROPERTY_BYTES(config.displayOptions, splashImage, defaultSplash);
@@ -807,8 +953,8 @@ void ConfigUtils::initUnsetPropertiesWithDefaults(Config& config)
     INIT_UNSET_PROPERTY(config.displayOptions, flip, DISPLAY_FLIP);
     INIT_UNSET_PROPERTY(config.displayOptions, invert, !!DISPLAY_INVERT);
     INIT_UNSET_PROPERTY(config.displayOptions, displaySaverTimeout, DISPLAY_SAVER_TIMEOUT);
-    INIT_UNSET_PROPERTY(config.displayOptions, displaySaverMode, DISPLAY_SAVER_MODE);
-    INIT_UNSET_PROPERTY(config.displayOptions, buttonLayoutOrientation, DISPLAY_LAYOUT_ORIENTATION);
+    INIT_UNSET_PROPERTY(config.displayOptions, displaySaverMode, static_cast<DisplaySaverMode>(DISPLAY_SAVER_MODE));
+    INIT_UNSET_PROPERTY(config.displayOptions, buttonLayoutOrientation, static_cast<ButtonLayoutOrientation>(DISPLAY_LAYOUT_ORIENTATION));
     INIT_UNSET_PROPERTY(config.displayOptions, contrast, DISPLAY_CONTRAST);
 
     // peripheralOptions
@@ -1120,7 +1266,7 @@ void ConfigUtils::initUnsetPropertiesWithDefaults(Config& config)
 
     // addonOptions.analogADS1219Options
     INIT_UNSET_PROPERTY(config.addonOptions.analogADS1219Options, enabled, !!I2C_ANALOG1219_ENABLED);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1219Options, deprecatedI2cBlock, (I2C_ANALOG1219_BLOCK == i2c0) ? 0 : 1)
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1219Options, deprecatedI2cBlock, 0);
     INIT_UNSET_PROPERTY(config.addonOptions.analogADS1219Options, deprecatedI2cSDAPin, -1);
     INIT_UNSET_PROPERTY(config.addonOptions.analogADS1219Options, deprecatedI2cSCLPin, -1);
     INIT_UNSET_PROPERTY(config.addonOptions.analogADS1219Options, deprecatedI2cAddress, I2C_ANALOG1219_ADDRESS);
@@ -1128,7 +1274,7 @@ void ConfigUtils::initUnsetPropertiesWithDefaults(Config& config)
 
     // addonOptions.analogADS1256Options
     INIT_UNSET_PROPERTY(config.addonOptions.analogADS1256Options, enabled, !!SPI_ANALOG1256_ENABLED);
-    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1256Options, spiBlock, (SPI_ANALOG1256_BLOCK == spi0) ? 0 : 1)
+    INIT_UNSET_PROPERTY(config.addonOptions.analogADS1256Options, spiBlock, 0);
     INIT_UNSET_PROPERTY(config.addonOptions.analogADS1256Options, csPin, SPI_ANALOG1256_CS_PIN);
     INIT_UNSET_PROPERTY(config.addonOptions.analogADS1256Options, drdyPin, SPI_ANALOG1256_DRDY_PIN);
     INIT_UNSET_PROPERTY(config.addonOptions.analogADS1256Options, avdd, (ADS1256_MAX_3V * 10));
@@ -1186,7 +1332,7 @@ void ConfigUtils::initUnsetPropertiesWithDefaults(Config& config)
 
     // addonOptions.wiiOptions
     INIT_UNSET_PROPERTY(config.addonOptions.wiiOptions, enabled, WII_EXTENSION_ENABLED);
-    INIT_UNSET_PROPERTY(config.addonOptions.wiiOptions, deprecatedI2cBlock, (WII_EXTENSION_I2C_BLOCK == i2c0) ? 0 : 1);
+    INIT_UNSET_PROPERTY(config.addonOptions.wiiOptions, deprecatedI2cBlock, 0);
     INIT_UNSET_PROPERTY(config.addonOptions.wiiOptions, deprecatedI2cSDAPin, -1);
     INIT_UNSET_PROPERTY(config.addonOptions.wiiOptions, deprecatedI2cSCLPin, -1);
     INIT_UNSET_PROPERTY(config.addonOptions.wiiOptions, deprecatedI2cSpeed, WII_EXTENSION_I2C_SPEED);
@@ -1198,29 +1344,8 @@ void ConfigUtils::initUnsetPropertiesWithDefaults(Config& config)
     INIT_UNSET_PROPERTY(config.addonOptions.snesOptions, dataPin, SNES_PAD_DATA_PIN);
 
     // addonOptions.pcf8575Options
-    INIT_UNSET_PROPERTY(config.addonOptions.pcf8575Options, enabled, I2C_PCF8575_ENABLED);
-    INIT_UNSET_PROPERTY(config.addonOptions.pcf8575Options, deprecatedI2cBlock, (I2C_PCF8575_BLOCK == i2c0) ? 0 : 1);
-
-    GpioAction pcf8575Actions[PCF8575_PIN_COUNT] = {
-        PCF8575_PIN00_ACTION,PCF8575_PIN01_ACTION,PCF8575_PIN02_ACTION,PCF8575_PIN03_ACTION,
-        PCF8575_PIN04_ACTION,PCF8575_PIN05_ACTION,PCF8575_PIN06_ACTION,PCF8575_PIN07_ACTION,
-        PCF8575_PIN08_ACTION,PCF8575_PIN09_ACTION,PCF8575_PIN10_ACTION,PCF8575_PIN11_ACTION,
-        PCF8575_PIN12_ACTION,PCF8575_PIN13_ACTION,PCF8575_PIN14_ACTION,PCF8575_PIN15_ACTION
-    };
-
-    GpioDirection pcf8575Directions[PCF8575_PIN_COUNT] = {
-        PCF8575_PIN00_DIRECTION,PCF8575_PIN01_DIRECTION,PCF8575_PIN02_DIRECTION,PCF8575_PIN03_DIRECTION,
-        PCF8575_PIN04_DIRECTION,PCF8575_PIN05_DIRECTION,PCF8575_PIN06_DIRECTION,PCF8575_PIN07_DIRECTION,
-        PCF8575_PIN08_DIRECTION,PCF8575_PIN09_DIRECTION,PCF8575_PIN10_DIRECTION,PCF8575_PIN11_DIRECTION,
-        PCF8575_PIN12_DIRECTION,PCF8575_PIN13_DIRECTION,PCF8575_PIN14_DIRECTION,PCF8575_PIN15_DIRECTION
-    };
-
-    for (uint16_t pin = 0; pin < PCF8575_PIN_COUNT; pin++) {
-        INIT_UNSET_PROPERTY(config.addonOptions.pcf8575Options.pins[pin], action, pcf8575Actions[pin]);
-        INIT_UNSET_PROPERTY(config.addonOptions.pcf8575Options.pins[pin], direction, pcf8575Directions[pin]);
-    }
-    // reminder that this must be set or else nanopb won't retain anything
-    config.addonOptions.pcf8575Options.pins_count = PCF8575_PIN_COUNT;
+    INIT_UNSET_PROPERTY(config.addonOptions.pcf8575Options, enabled, false);
+    config.addonOptions.pcf8575Options.pins_count = 0;
 
     // addonOptions.drv8833RumbleOptions
     INIT_UNSET_PROPERTY(config.addonOptions.drv8833RumbleOptions, enabled, !!DRV8833_RUMBLE_ENABLED);

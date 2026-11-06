@@ -42,10 +42,6 @@ void GP2040::setup() {
 
 	PeripheralManager::getInstance().initUSB();
 
-	// I2C & SPI rely on the system clock
-	PeripheralManager::getInstance().initSPI();
-	PeripheralManager::getInstance().initI2C();
-
 	Gamepad * gamepad = new Gamepad();
 	Gamepad * processedGamepad = new Gamepad();
 	Storage::getInstance().SetGamepad(gamepad);

@@ -24,3 +24,11 @@ www/src_gen/enums.ts
 
 # Language Server config
 .clangd
+
+# Local scratch and logs
+*.log
+*.bundle
+__pycache__/
+monitor_gamepad.py
+hid-nintendo.c
+xpad.c
