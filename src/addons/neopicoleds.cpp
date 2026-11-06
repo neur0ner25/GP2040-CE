@@ -11,11 +11,14 @@
 #include "gp2040.h"
 #include "addons/neopicoleds.h"
 #include "addons/pleds.h"
-#include "addons/turbo.h"
 #include "usbdriver.h"
 #include "enums.h"
 #include "helper.h"
 #include "animation.h"
+
+#ifndef TURBO_LED_INDEX
+#define TURBO_LED_INDEX -1
+#endif
 
 const std::string BUTTON_LABEL_UP = "Up";
 const std::string BUTTON_LABEL_DOWN = "Down";

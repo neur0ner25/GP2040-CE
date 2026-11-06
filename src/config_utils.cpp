@@ -18,8 +18,6 @@
 #include "addons/dualdirectional.h"
 #include "addons/tilt.h"
 #include "addons/focus_mode.h"
-#include "addons/i2canalog1115.h"
-#include "addons/i2canalog1219.h"
 #include "addons/display.h"
 #include "addons/keyboard_host.h"
 #include "addons/neopicoleds.h"
@@ -28,14 +26,59 @@
 #include "addons/reverse.h"
 #include "addons/slider_socd.h"
 #include "addons/slider_profile.h"
-#include "addons/spi_analog_ads1256.h"
 #include "addons/turbo.h"
-#include "addons/wiiext.h"
-#include "addons/snes_input.h"
 #include "addons/input_macro.h"
 #include "addons/rotaryencoder.h"
 #include "addons/i2c_gpio_pcf8575.h"
 #include "addons/drv8833_rumble.h"
+
+#ifndef I2C_ANALOG1115_ENABLED
+#define I2C_ANALOG1115_ENABLED 0
+#define ANALOG1115_CHANNEL_ENABLE 0
+#define ANALOG1115_INNER_DEADZONE_ENABLE 0
+#define ANALOG1115_OUTER_DEADZONE_ENABLE 0
+#define ANALOG1115_LSTICK_DEADZONE_ENABLE 0
+#define ANALOG1115_RSTICK_DEADZONE_ENABLE 0
+#define ANALOG1115_LSTICK_DEADZONE 0
+#define ANALOG1115_RSTICK_DEADZONE 0
+#define ANALOG1115_CHANNEL_INNER_DEADZONE 0
+#define ANALOG1115_CHANNEL_OUTER_DEADZONE 0
+#define ANALOG1115_INVERT 0
+#define ANALOG1115_AUTOCALIBRATE 0
+#define ANALOG1115_LX_CHANNEL 0
+#define ANALOG1115_LY_CHANNEL 1
+#define ANALOG1115_RX_CHANNEL 2
+#define ANALOG1115_RY_CHANNEL 3
+#endif
+
+#ifndef I2C_ANALOG1219_ENABLED
+#define I2C_ANALOG1219_ENABLED 0
+#define I2C_ANALOG1219_BLOCK i2c0
+#define I2C_ANALOG1219_ADDRESS 0x40
+#define I2C_ANALOG1219_SPEED 400000
+#endif
+
+#ifndef SPI_ANALOG1256_ENABLED
+#define SPI_ANALOG1256_ENABLED 0
+#define SPI_ANALOG1256_BLOCK spi0
+#define SPI_ANALOG1256_CS_PIN -1
+#define SPI_ANALOG1256_DRDY_PIN -1
+#define ADS1256_MAX_3V 3.3f
+#endif
+
+#ifndef WII_EXTENSION_ENABLED
+#define WII_EXTENSION_ENABLED 0
+#define WII_EXTENSION_I2C_BLOCK i2c0
+#define WII_EXTENSION_I2C_SPEED 400000
+#endif
+
+#ifndef SNES_PAD_ENABLED
+#define SNES_PAD_ENABLED 0
+#define SNES_PAD_CLOCK_PIN -1
+#define SNES_PAD_LATCH_PIN -1
+#define SNES_PAD_DATA_PIN -1
+#endif
+
 #include "addons/gamepad_usb_host.h"
 #include "addons/he_trigger.h"
 #include "addons/tg16_input.h"
@@ -43,8 +86,6 @@
 #include "CRC32.h"
 #include "FlashPROM.h"
 #include "base64.h"
-
-#include <ArduinoJson.h>
 
 #include <cassert>
 #include <cstring>
@@ -2692,6 +2733,7 @@ std::string ConfigUtils::toJSON(const Config& config)
     ENUMS_ENUMS_GP2040(GEN_IS_VALID_ENUM_VALUE_FUNCTION)
 #endif
 
+#if 0 // ProBridge-S2: ArduinoJson deserialization disabled
 #define FROM_JSON_ENUM(fieldname, enumType) \
     if (jsonObject.containsKey(#fieldname)) \
     { \
@@ -3046,33 +3088,10 @@ static bool fromJsonBytes(JsonObjectConst jsonObject, const char* fieldname, uin
     ENUM_MESSAGES_GP2040(GEN_FROM_JSON_FUNCTION_DECL)
     ENUM_MESSAGES_GP2040(GEN_FROM_JSON_FUNCTION)
 #endif
+#endif // ProBridge-S2: ArduinoJson deserialization disabled
 
-// Missing properties are ignored and initialized with default values
-// Type mismatches, buffer overruns or illegal enum values cause an error
+// ProBridge-S2: Web configuration disabled, config loaded from flash/storage only
 bool ConfigUtils::fromJSON(Config& config, const char* data, size_t dataLen)
 {
-    DynamicJsonDocument doc(1024 * 10);
-    if (deserializeJson(doc, data, dataLen) != DeserializationError::Ok || !doc.is<JsonObject>())
-    {
-        return false;
-    }
-
-    // Store config struct on the heap to avoid stack overflow
-    if (!fromJSONConfig(doc.as<JsonObjectConst>(), config))
-    {
-        return false;
-    }
-
-    initUnsetPropertiesWithDefaults(config);
-
-    // we need to run migrations here too, in case the json document changed pins or things derived from pins
-    if (!config.migrations.heTriggerSelectPinsMigrated)
-        heTriggerSelectPinsMigration(config);
-
-    gpioMappingsMigrationCore(config);
-    migrateTurboPinToGpio(config);
-    migrateAuthenticationMethods(config);
-    migrateMacroPinsToGpio(config);
-
-    return true;
+    return false;
 }

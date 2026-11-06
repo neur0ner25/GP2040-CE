@@ -14,35 +14,15 @@
 #include "usbhostmanager.h"
 
 // Inputs for Core0
-#include "addons/analog.h"
 #include "addons/bootsel_button.h"
-#include "addons/focus_mode.h"
-#include "addons/dualdirectional.h"
-#include "addons/tilt.h"
-#include "addons/keyboard_host.h"
-#include "addons/i2canalog1115.h"
-#include "addons/i2canalog1219.h"
-#include "addons/reverse.h"
-#include "addons/turbo.h"
-#include "addons/slider_socd.h"
-#include "addons/spi_analog_ads1256.h"
-#include "addons/wiiext.h"
-#include "addons/input_macro.h"
-#include "addons/snes_input.h"
-#include "addons/rotaryencoder.h"
-#include "addons/i2c_gpio_pcf8575.h"
 #include "addons/gamepad_usb_host.h"
-#include "addons/he_trigger.h"
-#include "addons/tg16_input.h"
-#include "addons/slider_profile.h"
+
 
 // Pico includes
 #include "pico/bootrom.h"
 #include "pico/platform.h"
 #include "pico/time.h"
 #include "hardware/adc.h"
-
-#include "rndis.h"
 
 // TinyUSB
 #include "tusb.h"
@@ -102,32 +82,9 @@ void GP2040::setup() {
 	// Initialize our ADC (various add-ons)
 	adc_init();
 
-	// Setup Add-ons
-	addons.LoadUSBAddon(new KeyboardHostAddon());
+	// Setup Add-ons (ProBridge-S2 uses USB Host for 8BitDo and BOOTSEL button recovery)
 	addons.LoadUSBAddon(new GamepadUSBHostAddon());
-	addons.LoadAddon(new AnalogInput());
-	HETriggerAddon* heTrigger = new HETriggerAddon();
-	if (addons.LoadAddon(heTrigger))
-		heTriggerAddon = heTrigger;
 	addons.LoadAddon(new BootselButtonAddon());
-	addons.LoadAddon(new DualDirectionalInput());
-	addons.LoadAddon(new FocusModeAddon());
-	addons.LoadAddon(new I2CAnalog1115Input());
-	addons.LoadAddon(new I2CAnalog1219Input());
-	addons.LoadAddon(new SPIAnalog1256Input());
-	addons.LoadAddon(new WiiExtensionInput());
-	addons.LoadAddon(new SNESpadInput());
-	addons.LoadAddon(new SliderSOCDInput());
-	addons.LoadAddon(new SliderProfileInput());
-	addons.LoadAddon(new TiltInput());
-	addons.LoadAddon(new RotaryEncoderInput());
-	addons.LoadAddon(new PCF8575Addon());
-	addons.LoadAddon(new TG16padInput());
-
-	// Input override addons
-	addons.LoadAddon(new ReverseInput());
-	addons.LoadAddon(new TurboInput()); // Turbo overrides button states and should be close to the end
-	addons.LoadAddon(new InputMacro());
 
 	// Use the old method of selecting input mode via mapped button, i.e. AFTER initializing GPIO
 	// pins with the currently active profile. Calling this even if the GPIO-mapped selection is
@@ -248,7 +205,7 @@ void GP2040::debounceGpioGetAll() {
 }
 
 void __not_in_flash_func(GP2040::run)() {
-	bool configMode = DriverManager::getInstance().isConfigMode();
+	bool configMode = false;
 	GPDriver * inputDriver = DriverManager::getInstance().getDriver();
 	Gamepad * gamepad = Storage::getInstance().GetGamepad();
 	Gamepad * processedGamepad = Storage::getInstance().GetProcessedGamepad();
@@ -260,10 +217,6 @@ void __not_in_flash_func(GP2040::run)() {
 
 	// Initialize our USB manager
 	USBHostManager::getInstance().start();
-
-	if (configMode == true ) {
-		rndis_init(WEB_CONFIG_HOSTNAME);
-	}
 
 	while (1) { // LOOP
 		this->getReinitGamepad(gamepad);
@@ -279,18 +232,6 @@ void __not_in_flash_func(GP2040::run)() {
 
 		// Process USB Host on Core0
 		USBHostManager::getInstance().process();
-
-		// Config Loop (Web-Config skips Core0 add-ons)
-		if (configMode == true) {
-			if (heTriggerAddon) {
-				heTriggerAddon->configModeProcess();
-				processedGamepad->state.heTriggers = gamepad->state.heTriggers;
-			}
-			inputDriver->process(gamepad);
-			rebootHotkeys.process(gamepad, configMode);
-			checkSaveRebootState();
-			continue;
-		}
 
 		// Pre-Process add-ons for MPGS
 		addons.PreprocessAddons();
@@ -518,21 +459,13 @@ void GP2040::RebootHotkeys::process(Gamepad* gamepad, bool configMode) {
 			noButtonsPressedTimeout = nil_time;
 		}
 	} else {
-		if (gamepad->state.buttons == webConfigHotkeyMask || gamepad->state.buttons == bootselHotkeyMask) {
+		if (gamepad->state.buttons == bootselHotkeyMask) {
 			if (is_nil_time(rebootHotkeysHoldTimeout)) {
 				rebootHotkeysHoldTimeout = make_timeout_time_ms(REBOOT_HOTKEY_HOLD_TIME_MS);
 			}
 
 			if (time_reached(rebootHotkeysHoldTimeout)) {
-				if (gamepad->state.buttons == webConfigHotkeyMask) {
-					// If we are in webconfig mode we go to gamepad mode and vice versa
-					if ( configMode )
-						EventManager::getInstance().triggerEvent(new GPRestartEvent((System::BootMode)System::BootMode::GAMEPAD));
-					else
-						EventManager::getInstance().triggerEvent(new GPRestartEvent((System::BootMode)System::BootMode::WEBCONFIG));
-				} else if (gamepad->state.buttons == bootselHotkeyMask) {
-					EventManager::getInstance().triggerEvent(new GPRestartEvent(System::BootMode::USB));
-				}
+				EventManager::getInstance().triggerEvent(new GPRestartEvent(System::BootMode::USB));
 			}
 		} else {
 			rebootHotkeysHoldTimeout = nil_time;
