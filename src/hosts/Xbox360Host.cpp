@@ -259,9 +259,9 @@ static inline void apply_radial_deadzone(int16_t in_x, int16_t in_y, int16_t dea
 
     const int32_t x = in_x;
     const int32_t y = in_y;
-    const uint64_t r2 = static_cast<uint64_t>(static_cast<int64_t>(x) * x) +
-                        static_cast<uint64_t>(static_cast<int64_t>(y) * y);
-    const uint64_t dz2 = static_cast<uint64_t>(deadzone) * static_cast<uint64_t>(deadzone);
+    // Each square fits in int32_t; their sum can reach 2^31, so add unsigned.
+    const uint32_t r2 = static_cast<uint32_t>(x * x) + static_cast<uint32_t>(y * y);
+    const uint32_t dz2 = static_cast<uint32_t>(deadzone) * static_cast<uint32_t>(deadzone);
 
     // Fast integer rejection: if inside radial deadzone, avoid sqrtf and float scaling completely
     if (r2 <= dz2) {
@@ -296,9 +296,19 @@ void __not_in_flash_func(Xbox360Host::process)(uint8_t const* report, uint16_t l
         return;
     }
 
-    memcpy(&controller_report, report, sizeof(controller_report));
+    // Volatile byte accesses prevent the compiler from replacing these loops with
+    // XIP-resident memcpy/memcmp, and do not assume report buffer alignment.
+    auto *local_bytes = reinterpret_cast<volatile uint8_t *>(&controller_report);
+    auto *previous_bytes = reinterpret_cast<volatile uint8_t *>(&prev_report);
+    bool changed = false;
+    for (size_t i = 0; i < sizeof(controller_report); ++i) {
+        const uint8_t value = report[i];
+        local_bytes[i] = value;
+        changed |= previous_bytes[i] != value;
+        previous_bytes[i] = value;
+    }
 
-    if (memcmp(&prev_report, &controller_report, sizeof(XInputReport)) == 0)
+    if (!changed)
         return;
 
     _controller_host_state.dpad = 0;
@@ -344,8 +354,6 @@ void __not_in_flash_func(Xbox360Host::process)(uint8_t const* report, uint16_t l
 
     _controller_host_state.lt = controller_report.lt;
     _controller_host_state.rt = controller_report.rt;
-
-    memcpy(&prev_report, &controller_report, sizeof(XInputReport));
 }
 
 

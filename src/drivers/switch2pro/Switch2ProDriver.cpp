@@ -706,6 +706,7 @@ struct PackedStickCache {
     uint16_t last_x = 0xFFFF;
     uint16_t last_y = 0xFFFF;
     uint8_t bytes[3] = {};
+    bool valid = false;
 };
 
 static PackedStickCache leftStickCache;
@@ -761,10 +762,11 @@ static void __not_in_flash_func(packStick)(uint8_t *out, uint16_t x16, uint16_t 
 }
 
 static inline void packStickCached(PackedStickCache& cache, uint8_t *out, uint16_t x16, uint16_t y16) {
-    if (x16 != cache.last_x || y16 != cache.last_y) {
+    if (!cache.valid || x16 != cache.last_x || y16 != cache.last_y) {
         packStick(cache.bytes, x16, y16);
         cache.last_x = x16;
         cache.last_y = y16;
+        cache.valid = true;
     }
     out[0] = cache.bytes[0];
     out[1] = cache.bytes[1];
@@ -777,7 +779,7 @@ bool Switch2ProDriver::process(Gamepad * gamepad) {
     processedGamepad->auxState.playerID.ledValue = playerLedMask;
     processedGamepad->auxState.playerID.value = playerLedMask;
     const uint32_t now = to_ms_since_boot(get_absolute_time());
-    if (userCalibDirty && !cmdReplyPending && (uint32_t)(now - lastCalibActivityMs) >= 1000 && gamepad->state.buttons == 0) {
+    if (userCalibDirty && !cmdReplyPending && (uint32_t)(now - lastCalibActivityMs) >= 1000) {
         userCalibDirty = false;
         GamepadOptions & options = Storage::getInstance().getGamepadOptions();
         if (!options.has_switch2ProUserCalib ||
