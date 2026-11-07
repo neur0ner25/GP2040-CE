@@ -55,21 +55,20 @@ if (PICO_SDK_VERSION_STRING VERSION_LESS "2.3.1")
   message(FATAL_ERROR "Raspberry Pi Pico SDK version 2.3.1 (or later) required. Your version is ${PICO_SDK_VERSION_STRING}")
 endif()
 
-# set the version based on git
+# ProBridge-S2 version
+set(PROBRIDGE_VERSION "1.0.0")
+
+# set the build id based on git
 find_package(Git)
-execute_process(COMMAND ${GIT_EXECUTABLE} describe --tags --always --dirty --abbrev=7
-	WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-	OUTPUT_VARIABLE GIT_REPO_VERSION
-	OUTPUT_STRIP_TRAILING_WHITESPACE)
 execute_process(COMMAND ${GIT_EXECUTABLE} describe --always --abbrev=7
 	WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 	OUTPUT_VARIABLE GIT_REPO_BUILD_ID
 	OUTPUT_STRIP_TRAILING_WHITESPACE)
-string(REGEX REPLACE "v([0-9]+\\.[0-9]+\\.[0-9]+).*" "\\1" CMAKE_GIT_REPO_VERSION ${GIT_REPO_VERSION})
-string(REGEX REPLACE "^(.......-.*)|(.......)$" "0.0.0" CMAKE_GIT_REPO_VERSION ${CMAKE_GIT_REPO_VERSION})
+set(GIT_REPO_VERSION "v${PROBRIDGE_VERSION}")
+set(CMAKE_GIT_REPO_VERSION "${PROBRIDGE_VERSION}")
 configure_file("headers/version.h.in" "headers/version.h")
 
-project(ProBridge-S2 LANGUAGES C CXX ASM VERSION ${CMAKE_GIT_REPO_VERSION})
+project(ProBridge-S2 LANGUAGES C CXX ASM VERSION ${PROBRIDGE_VERSION})
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
@@ -138,10 +137,10 @@ add_executable(${PROJECT_NAME}
   ${PROTO_OUTPUT_DIR}/config.pb.c
 )
 
-set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME ${PROJECT_NAME}_${CMAKE_PROJECT_VERSION}_${GP2040_BOARDCONFIG})
+set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME ${PROJECT_NAME})
 
 pico_set_program_name(${PROJECT_NAME} "ProBridge-S2")
-pico_set_program_version(${PROJECT_NAME} ${GIT_REPO_VERSION})
+pico_set_program_version(${PROJECT_NAME} "${PROBRIDGE_VERSION}")
 
 target_link_libraries(${PROJECT_NAME}
   pico_stdlib
@@ -190,7 +189,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 pico_add_extra_outputs(${PROJECT_NAME})
 
 install(FILES
-  ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}_${CMAKE_PROJECT_VERSION}_${GP2040_BOARDCONFIG}.uf2
+  ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.uf2
   ${CMAKE_CURRENT_LIST_DIR}/README.md
   DESTINATION .
 )

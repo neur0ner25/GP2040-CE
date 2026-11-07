@@ -13,7 +13,11 @@ export PICO_SDK_PATH="${PICO_SDK_PATH:-/home/neur0ner/pico-sdk}"
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j"$(nproc)"
 
-UF2_FILE=$(ls "$DIR/build"/ProBridge-S2_*.uf2 2>/dev/null | head -n 1)
+if [ -f "$DIR/build/ProBridge-S2.uf2" ]; then
+    UF2_FILE="$DIR/build/ProBridge-S2.uf2"
+else
+    UF2_FILE=$(ls "$DIR/build"/ProBridge-S2*.uf2 2>/dev/null | head -n 1)
+fi
 
 echo ""
 echo "=================================================="
