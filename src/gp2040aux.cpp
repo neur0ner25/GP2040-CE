@@ -37,7 +37,7 @@ void GP2040Aux::setup() {
 	addons.LoadAddon(new BoardLedAddon());
 
 	// Ready to sync Core0 and Core1
-	isReady = true;
+	isReady.store(true, std::memory_order_release);
 }
 
 void GP2040Aux::run() {

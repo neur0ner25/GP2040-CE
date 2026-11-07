@@ -6,6 +6,8 @@
 #ifndef GP2040CORE1_H_
 #define GP2040CORE1_H_
 
+#include <atomic>
+
 #include "addonmanager.h"
 #include "drivermanager.h"
 
@@ -15,11 +17,11 @@ public:
     ~GP2040Aux();
     void setup();           // setup core1
     void run();             // loop core1
-    bool ready(){ return isReady; }
+    bool ready(){ return isReady.load(std::memory_order_acquire); }
 private:
     GPDriver * inputDriver;
     AddonManager addons;
-    bool isReady;
+    std::atomic<bool> isReady;
 };
 
 #endif

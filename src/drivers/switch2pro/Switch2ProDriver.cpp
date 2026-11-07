@@ -780,7 +780,6 @@ bool Switch2ProDriver::process(Gamepad * gamepad) {
     processedGamepad->auxState.playerID.value = playerLedMask;
     const uint32_t now = to_ms_since_boot(get_absolute_time());
     if (userCalibDirty && !cmdReplyPending && (uint32_t)(now - lastCalibActivityMs) >= 1000) {
-        userCalibDirty = false;
         GamepadOptions & options = Storage::getInstance().getGamepadOptions();
         if (!options.has_switch2ProUserCalib ||
             options.switch2ProUserCalib.size != sizeof(userCalibData) ||
@@ -788,8 +787,12 @@ bool Switch2ProDriver::process(Gamepad * gamepad) {
             memcpy(options.switch2ProUserCalib.bytes, userCalibData, sizeof(userCalibData));
             options.switch2ProUserCalib.size = sizeof(userCalibData);
             options.has_switch2ProUserCalib = true;
-            Storage::getInstance().save(true);
         }
+        // Retry failed encoding even when the in-memory options already match.
+        if (Storage::getInstance().save(true))
+            userCalibDirty = false;
+        else
+            lastCalibActivityMs = now;
     }
     if (rumbleWatchdogActive && (now - lastRumblePacketTime) > 1000) {
         setSwitch2ProRumble(0, 0);
