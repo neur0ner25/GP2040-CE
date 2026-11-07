@@ -8,7 +8,7 @@
 
 #include <gphost.h>
 
-#include "drivers/xinput/XInputDescriptors.h"
+#include "drivers/shared/XInputDescriptors.h"
 
 //
 // Xbox 360 Controller Host

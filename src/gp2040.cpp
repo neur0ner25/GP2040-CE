@@ -112,10 +112,6 @@ void GP2040::setup() {
 		// before USB host will be used so we can force it to ignore the check
 		if (inputModeChanged || profileChanged) Storage::getInstance().save(true);
 	}
-
-	// register system event handlers
-	EventManager::getInstance().registerEventHandler(GP_EVENT_STORAGE_SAVE, GPEVENT_CALLBACK(this->handleStorageSave(event)), this);
-	EventManager::getInstance().registerEventHandler(GP_EVENT_RESTART, GPEVENT_CALLBACK(this->handleSystemReboot(event)), this);
 }
 
 /**
@@ -163,6 +159,8 @@ void GP2040::deinitializeStandardGpio() {
  * instead, if you don't want debounced data.
  */
 void GP2040::debounceGpioGetAll() {
+	if (buttonGpios == 0) return;
+
 	Mask_t rawGpios = Storage::getInstance().getPressedGpios();
 	Mask_t pressedGpios = rawGpios & buttonGpios;
 	Gamepad* gamepad = Storage::getInstance().GetGamepad();
@@ -201,60 +199,56 @@ void GP2040::debounceGpioGetAll() {
 }
 
 void __not_in_flash_func(GP2040::run)() {
-	bool configMode = false;
 	GPDriver * inputDriver = DriverManager::getInstance().getDriver();
 	Gamepad * gamepad = Storage::getInstance().GetGamepad();
 	Gamepad * processedGamepad = Storage::getInstance().GetProcessedGamepad();
-	GamepadState prevState;
 
-	// Start the TinyUSB Device functionality
+	// Start TinyUSB Device stack (Nintendo Switch 2 Pro Controller)
 	const tusb_rhport_init_t dev_init = { .role = TUSB_ROLE_DEVICE, .speed = TUSB_SPEED_AUTO };
 	tusb_init(TUD_OPT_RHPORT, &dev_init);
 
-	// Initialize our USB manager
+	// Start USB Host manager (Pico-PIO-USB on GP28/GP29 for 8BitDo gamepad)
 	USBHostManager::getInstance().start();
 
-	while (1) { // LOOP
+	while (1) { // 1000 Hz Core0 main loop
 		this->getReinitGamepad(gamepad);
 
-		memcpy(&prevState, &gamepad->state, sizeof(GamepadState));
+		// Reset gamepad state before reading inputs
+		gamepad->clearState();
 
-		// Debounce
+		// Debounce and read physical GPIO pins (if any mapped)
 		debounceGpioGetAll();
-		// Read Gamepad
 		gamepad->read();
 
-		checkRawState(prevState, gamepad->state);
-
-		// Process USB Host on Core0
+		// Process USB Host on Core0 (reads 8BitDo controller)
 		USBHostManager::getInstance().process();
 
-		// Pre-Process add-ons for MPGS
+		// Pre-Process add-ons (maps 8BitDo reports & BOOTSEL button to Gamepad)
 		addons.PreprocessAddons();
 
-		gamepad->process(); // process through MPGS
+		// Process through MPGS (SOCD, D-pad inversion/mode)
+		gamepad->process();
 
-		// (Post) Process for add-ons
+		// Process for add-ons
 		addons.ProcessAddons();
 
-		gamepad->hotkey(); 	// check for MPGS hotkeys
-		rebootHotkeys.process(gamepad, configMode);
+		// Check hotkeys (SOCD mode, USB bootloader reboot combo)
+		gamepad->hotkey();
+		rebootHotkeys.process(gamepad, false);
 
-		checkProcessedState(processedGamepad->state, gamepad->state);
-
-		// Copy Processed Gamepad for Core1 (race condition otherwise)
+		// Copy Processed Gamepad for Core1
 		memcpy(&processedGamepad->state, &gamepad->state, sizeof(GamepadState));
 
-		// Process Input Driver
+		// Send Nintendo Switch 2 Pro Controller report over USB Device
 		bool processed = inputDriver->process(gamepad);
 
-		// TinyUSB Task update
+		// TinyUSB Device Task update
 		tud_task();
 
-		// Post-Process Add-ons with USB Report Processed Sent
+		// Post-Process Add-ons (send rumble report back to 8BitDo via USB Host)
 		addons.PostprocessAddons(processed);
 
-		// Check if we have a pending save
+		// Check if we have a pending save or reboot
 		checkSaveRebootState();
 	}
 }
@@ -264,7 +258,6 @@ void GP2040::getReinitGamepad(Gamepad * gamepad) {
 
 	// Check if profile has changed since last reinit
 	if (gamepad->lastReinitProfileNumber != gamepadOptions.profileNumber) {
-		uint32_t previousProfile = gamepad->lastReinitProfileNumber;
 		uint32_t currentProfile = gamepadOptions.profileNumber;
 
 		// deinitialize the ordinary (non-reserved, non-addon) GPIO pins, since
@@ -290,9 +283,6 @@ void GP2040::getReinitGamepad(Gamepad * gamepad) {
 
 		// Update the last reinit profile
 		gamepad->lastReinitProfileNumber = currentProfile;
-
-		// Trigger the profile change event now that reinit is complete
-		EventManager::getInstance().triggerEvent(new GPProfileChangeEvent(previousProfile, currentProfile));
 	}
 }
 
@@ -461,63 +451,12 @@ void GP2040::RebootHotkeys::process(Gamepad* gamepad, bool configMode) {
 			}
 
 			if (time_reached(rebootHotkeysHoldTimeout)) {
-				EventManager::getInstance().triggerEvent(new GPRestartEvent(System::BootMode::USB));
+				GP2040::requestReboot(System::BootMode::USB);
 			}
 		} else {
 			rebootHotkeysHoldTimeout = nil_time;
 		}
 	}
-}
-
-void GP2040::checkRawState(const GamepadState& prevState, const GamepadState& currState) {
-    // buttons pressed
-    if ((
-        ((currState.aux & ~prevState.aux) != 0) ||
-        ((currState.dpad & ~prevState.dpad) != 0) ||
-        ((currState.buttons & ~prevState.buttons) != 0)
-    ) && EventManager::getInstance().hasEventHandlers(GP_EVENT_BUTTON_DOWN)) {
-        EventManager::getInstance().triggerEvent(new GPButtonDownEvent((currState.dpad & ~prevState.dpad), (currState.buttons & ~prevState.buttons), (currState.aux & ~prevState.aux)));
-    }
-
-    // buttons released
-    if ((
-        ((prevState.aux & ~currState.aux) != 0) ||
-        ((prevState.dpad & ~currState.dpad) != 0) ||
-        ((prevState.buttons & ~currState.buttons) != 0)
-    ) && EventManager::getInstance().hasEventHandlers(GP_EVENT_BUTTON_UP)) {
-        EventManager::getInstance().triggerEvent(new GPButtonUpEvent((prevState.dpad & ~currState.dpad), (prevState.buttons & ~currState.buttons), (prevState.aux & ~currState.aux)));
-    }
-}
-
-void GP2040::checkProcessedState(const GamepadState& prevState, const GamepadState& currState) {
-    // buttons pressed
-    if ((
-        ((currState.aux & ~prevState.aux) != 0) ||
-        ((currState.dpad & ~prevState.dpad) != 0) ||
-        ((currState.buttons & ~prevState.buttons) != 0)
-    ) && EventManager::getInstance().hasEventHandlers(GP_EVENT_BUTTON_PROCESSED_DOWN)) {
-        EventManager::getInstance().triggerEvent(new GPButtonProcessedDownEvent((currState.dpad & ~prevState.dpad), (currState.buttons & ~prevState.buttons), (currState.aux & ~prevState.aux)));
-    }
-
-    // buttons released
-    if ((
-        ((prevState.aux & ~currState.aux) != 0) ||
-        ((prevState.dpad & ~currState.dpad) != 0) ||
-        ((prevState.buttons & ~currState.buttons) != 0)
-    ) && EventManager::getInstance().hasEventHandlers(GP_EVENT_BUTTON_PROCESSED_UP)) {
-        EventManager::getInstance().triggerEvent(new GPButtonProcessedUpEvent((prevState.dpad & ~currState.dpad), (prevState.buttons & ~currState.buttons), (prevState.aux & ~currState.aux)));
-    }
-
-    if ((
-        (currState.lx != prevState.lx) ||
-        (currState.ly != prevState.ly) ||
-        (currState.rx != prevState.rx) ||
-        (currState.ry != prevState.ry) ||
-        (currState.lt != prevState.lt) ||
-        (currState.rt != prevState.rt)
-    ) && EventManager::getInstance().hasEventHandlers(GP_EVENT_ANALOG_PROCESSED_MOVE)) {
-        EventManager::getInstance().triggerEvent(new GPAnalogProcessedMoveEvent(currState.lx, currState.ly, currState.rx, currState.ry, currState.lt, currState.rt));
-    }
 }
 
 void GP2040::checkSaveRebootState() {
@@ -534,19 +473,4 @@ void GP2040::checkSaveRebootState() {
 	if (!is_nil_time(rebootDelayTimeout) && time_reached(rebootDelayTimeout)) {
 		System::reboot(rebootMode);
 	}
-}
-
-void GP2040::handleStorageSave(GPEvent* e) {
-	saveRequested = true;
-	forceSave = ((GPStorageSaveEvent*)e)->forceSave;
-	// A save that asks for no restart leaves a pending reboot and its mode alone
-	if (((GPStorageSaveEvent*)e)->restartAfterSave) {
-		rebootRequested = true;
-		rebootMode = System::BootMode::DEFAULT;
-	}
-}
-
-void GP2040::handleSystemReboot(GPEvent* e) {
-	rebootRequested = true;
-	rebootMode = ((GPRestartEvent*)e)->bootMode;
 }

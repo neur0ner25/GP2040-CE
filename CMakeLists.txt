@@ -119,35 +119,20 @@ add_executable(${PROJECT_NAME}
   src/gamepad.cpp
   src/gamepad/GamepadState.cpp
   src/addonmanager.cpp
-  src/playerleds.cpp
   src/drivers/shared/xinput_host.cpp
   src/drivers/switch2pro/Switch2ProDriver.cpp
   src/drivermanager.cpp
-  src/eventmanager.cpp
-  src/layoutmanager.cpp
   src/peripheralmanager.cpp
   src/storagemanager.cpp
   src/system.cpp
   src/usbdriver.cpp
   src/usbhostmanager.cpp
-  src/config_legacy.cpp
   src/config_utils.cpp
   src/addons/board_led.cpp
   src/addons/bootsel_button.cpp
   src/addons/neopicoleds.cpp
   src/addons/gamepad_usb_host.cpp
   src/addons/gamepad_usb_host_listener.cpp
-  src/animationstation/animation.cpp
-  src/animationstation/animationstation.cpp
-  src/animationstation/effects/burstcolor.cpp
-  src/animationstation/effects/chase.cpp
-  src/animationstation/effects/idletimeout.cpp
-  src/animationstation/effects/jigglestaticcolor.cpp
-  src/animationstation/effects/jiggletwostaticcolor.cpp
-  src/animationstation/effects/rain.cpp
-  src/animationstation/effects/rainbow.cpp
-  src/animationstation/effects/randomcolor.cpp
-  src/animationstation/effects/staticcolor.cpp
   src/hosts/Xbox360Host.cpp
   ${PROTO_OUTPUT_DIR}/enums.pb.c
   ${PROTO_OUTPUT_DIR}/config.pb.c
@@ -182,8 +167,6 @@ target_include_directories(${PROJECT_NAME} PUBLIC
   headers/drivers/shared
   headers/events
   headers/gamepad
-  headers/animationstation
-  headers/animationstation/effects
   headers/hosts
   configs/${GP2040_BOARDCONFIG}
   ${PROTO_OUTPUT_DIR}

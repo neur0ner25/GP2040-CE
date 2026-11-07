@@ -5,6 +5,7 @@
 
 // GP2040 Libraries
 #include "gamepad.h"
+#include "gp2040.h"
 #include "enums.pb.h"
 #include "storagemanager.h"
 #include "types.h"
@@ -320,6 +321,7 @@ void Gamepad::process()
 void Gamepad::read()
 {
 	Mask_t values = Storage::getInstance().GetGamepad()->debouncedGpio;
+	if (values == 0) return;
 
 	// Get the midpoint value for the current mode
 	uint16_t joystickMid = GAMEPAD_JOYSTICK_MID;
@@ -576,22 +578,17 @@ void Gamepad::processHotkeyAction(GamepadHotkey action) {
 			break;
 		case HOTKEY_REBOOT_DEFAULT:
 			if (action != lastAction) {
-				EventManager::getInstance().triggerEvent(new GPRestartEvent((System::BootMode)System::BootMode::DEFAULT));
-			}
-			break;
-		case HOTKEY_REBOOT_WEBCONFIG:
-			if (action != lastAction) {
-				EventManager::getInstance().triggerEvent(new GPRestartEvent((System::BootMode)System::BootMode::WEBCONFIG));
+				GP2040::requestReboot(System::BootMode::DEFAULT);
 			}
 			break;
 		case HOTKEY_REBOOT_USB:
 			if (action != lastAction) {
-				EventManager::getInstance().triggerEvent(new GPRestartEvent((System::BootMode)System::BootMode::USB));
+				GP2040::requestReboot(System::BootMode::USB);
 			}
 			break;
 		case HOTKEY_SAVE_CONFIG:
 			if (action != lastAction) {
-				Storage::getInstance().save(true);
+				GP2040::requestSave(true);
 			}
 			break;
 		case HOTKEY_CAPTURE_BUTTON:
@@ -630,145 +627,6 @@ void Gamepad::processHotkeyAction(GamepadHotkey action) {
 				reqSave = true;
 			}
 			break;
-		case HOTKEY_TOGGLE_DDI_4_WAY_MODE:
-			if (action != lastAction) {
-				DualDirectionalOptions& ddiOpt = Storage::getInstance().getAddonOptions().dualDirectionalOptions;
-				ddiOpt.fourWayMode = !ddiOpt.fourWayMode;
-				reqSave = true;
-			}
-			break;
-		case HOTKEY_LOAD_PROFILE_1:
-			if (action != lastAction) {
-				if (Storage::getInstance().setProfile(1)) {
-					reqSave = true;
-				}
-			}
-			break;
-		case HOTKEY_LOAD_PROFILE_2:
-			if (action != lastAction) {
-				if (Storage::getInstance().setProfile(2)) {
-					reqSave = true;
-				}
-			}
-			break;
-		case HOTKEY_LOAD_PROFILE_3:
-			if (action != lastAction) {
-				if (Storage::getInstance().setProfile(3)) {
-					reqSave = true;
-				}
-			}
-			break;
-		case HOTKEY_LOAD_PROFILE_4:
-			if (action != lastAction) {
-				if (Storage::getInstance().setProfile(4)) {
-					reqSave = true;
-				}
-			}
-			break;
-		case HOTKEY_LOAD_PROFILE_5:
-			if (action != lastAction) {
-				if (Storage::getInstance().setProfile(5)) {
-					reqSave = true;
-				}
-			}
-			break;
-		case HOTKEY_LOAD_PROFILE_6:
-			if (action != lastAction) {
-				if (Storage::getInstance().setProfile(6)) {
-					reqSave = true;
-				}
-			}
-			break;
-		case HOTKEY_NEXT_PROFILE:
-			if (action != lastAction) {
-				Storage::getInstance().nextProfile();
-				reqSave = true;
-			}
-			break;
-		case HOTKEY_PREVIOUS_PROFILE:
-			if (action != lastAction) {
-				Storage::getInstance().previousProfile();
-				reqSave = true;
-			}
-			break;
-		case HOTKEY_TURBO_COUNT_UP:
-			if (action != lastAction) {
-				TurboOptions &turboOptions = Storage::getInstance().getAddonOptions().turboOptions;
-				turboOptions.shotCount++;
-			}
-			break;
-		case HOTKEY_TURBO_COUNT_DOWN:
-			if (action != lastAction) {
-				TurboOptions &turboOptions = Storage::getInstance().getAddonOptions().turboOptions;
-				turboOptions.shotCount--;
-			}
-			break;
-		case HOTKEY_MENU_NAV_UP:
-			if (action != lastAction) {
-                EventManager::getInstance().triggerEvent(new GPMenuNavigateEvent(GpioAction::MENU_NAVIGATION_UP));
-            }
-			break;
-		case HOTKEY_MENU_NAV_DOWN:
-			if (action != lastAction) {
-                EventManager::getInstance().triggerEvent(new GPMenuNavigateEvent(GpioAction::MENU_NAVIGATION_DOWN));
-            }
-			break;
-		case HOTKEY_MENU_NAV_LEFT:
-			if (action != lastAction) {
-                EventManager::getInstance().triggerEvent(new GPMenuNavigateEvent(GpioAction::MENU_NAVIGATION_LEFT));
-            }
-			break;
-		case HOTKEY_MENU_NAV_RIGHT:
-			if (action != lastAction) {
-                EventManager::getInstance().triggerEvent(new GPMenuNavigateEvent(GpioAction::MENU_NAVIGATION_RIGHT));
-            }
-			break;
-		case HOTKEY_MENU_NAV_SELECT:
-			if (action != lastAction) {
-                EventManager::getInstance().triggerEvent(new GPMenuNavigateEvent(GpioAction::MENU_NAVIGATION_SELECT));
-            }
-			break;
-		case HOTKEY_MENU_NAV_BACK:
-			if (action != lastAction) {
-                EventManager::getInstance().triggerEvent(new GPMenuNavigateEvent(GpioAction::MENU_NAVIGATION_BACK));
-            }
-			break;
-		case HOTKEY_MENU_NAV_TOGGLE:
-			if (action != lastAction) {
-				EventManager::getInstance().triggerEvent(new GPMenuNavigateEvent(GpioAction::MENU_NAVIGATION_TOGGLE));
-			}
-			break;
-		case HOTKEY_FOCUS_MODE_TOGGLE:
-		{
-			auto &focusModeOptions = Storage::getInstance().getAddonOptions().focusModeOptions;
-
-			if( !focusModeOptions.overrideEnabled )
-			{
-				if (action != lastAction)
-				{
-					focusModeOptions.overrideEnabled = true;
-					reqSave = true;
-				}
-			}
-			else // override is already enabled, hold action to disable
-			{
-				//start timer if last action was not HOTKEY_FOCUS_MODE_TOGGLE (i.e.. it has not been held), or
-				//if the timer has not yet been started
-				if( lastAction != action || is_nil_time(disableFocusModeTimeout))
-				{
-					constexpr uint32_t focusModeToggleHoldMs = 2000;
-					disableFocusModeTimeout = make_timeout_time_ms(focusModeToggleHoldMs);
-				}
-
-				if( time_reached( disableFocusModeTimeout ) )
-				{
-					disableFocusModeTimeout = nil_time;
-					focusModeOptions.overrideEnabled = false;
-					reqSave = true;
-				}
-			}
-		}
-			break;
 		case HOTKEY_LS_UP:
 			state.ly = GAMEPAD_JOYSTICK_MIN;
 			break;
@@ -800,7 +658,7 @@ void Gamepad::processHotkeyAction(GamepadHotkey action) {
 
 	// only save if requested
 	if (reqSave) {
-		EventManager::getInstance().triggerEvent(new GPStorageSaveEvent(true));
+		GP2040::requestSave(true);
 	}
 
 	lastAction = action;

@@ -17,8 +17,6 @@
 #include "config.pb.h"
 #include <atomic>
 #include "pico/critical_section.h"
-#include "eventmanager.h"
-#include "GPStorageSaveEvent.h"
 
 // Storage manager for board, LED options, and thread-safe settings
 class Storage {

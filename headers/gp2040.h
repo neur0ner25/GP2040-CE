@@ -15,8 +15,8 @@
 // GP2040 Classes
 #include "gamepad.h"
 #include "addonmanager.h"
-#include "eventmanager.h"
 #include "gpdriver.h"
+#include "system.h"
 
 #include "pico/types.h"
 
@@ -26,12 +26,27 @@ public:
     ~GP2040(){}
     void setup();           // setup core0
     void run();             // loop core0
+
+    static void requestSave(bool force = true, bool restart = false) {
+        saveRequested = true;
+        forceSave = force;
+        if (restart) {
+            rebootRequested = true;
+            rebootMode = System::BootMode::DEFAULT;
+        }
+    }
+
+    static void requestReboot(System::BootMode mode = System::BootMode::DEFAULT) {
+        rebootRequested = true;
+        rebootMode = mode;
+    }
+
 private:
     Gamepad snapshot;
     AddonManager addons;
     // GPIO debouncer
     void debounceGpioGetAll();
-    Mask_t buttonGpios;
+    Mask_t buttonGpios = 0;
     uint32_t gpioDebounceTime[NUM_BANK0_GPIOS] = {};
 
     struct RebootHotkeys {
@@ -48,18 +63,18 @@ private:
     RebootHotkeys rebootHotkeys;
 
     enum class BootActionType {
-			ENTER_USB_MODE,
-			SET_INPUT_MODE
-		};
+        ENTER_USB_MODE,
+        SET_INPUT_MODE
+    };
 
-		struct BootAction {
-			BootActionType type = BootActionType::SET_INPUT_MODE;
-			InputMode inputMode = INPUT_MODE_XINPUT;
-			uint32_t profileNumber = 0;
-		};
+    struct BootAction {
+        BootActionType type = BootActionType::SET_INPUT_MODE;
+        InputMode inputMode = INPUT_MODE_SWITCH2_PRO;
+        uint32_t profileNumber = 0;
+    };
 
-		BootAction getGpioMappedBootAction();
-		BootAction getButtonMappedBootAction();
+    BootAction getGpioMappedBootAction();
+    BootAction getButtonMappedBootAction();
 
     void getReinitGamepad(Gamepad * gamepad);
 
@@ -67,20 +82,13 @@ private:
     void initializeStandardGpio();
     void deinitializeStandardGpio();
 
-    // event handling checking
-    void checkRawState(const GamepadState& prevState, const GamepadState& currState);
-    void checkProcessedState(const GamepadState& prevState, const GamepadState& currState);
-
     void checkSaveRebootState();
-    bool saveRequested = false;
-    bool forceSave = false;
-    bool saveSuccessful = false;
-    void handleStorageSave(GPEvent* e);
 
-    bool rebootRequested = false;
-    void handleSystemReboot(GPEvent* e);
-
-    System::BootMode rebootMode = System::BootMode::DEFAULT;
+    static inline bool saveRequested = false;
+    static inline bool forceSave = false;
+    static inline bool saveSuccessful = false;
+    static inline bool rebootRequested = false;
+    static inline System::BootMode rebootMode = System::BootMode::DEFAULT;
 };
 
 #endif
