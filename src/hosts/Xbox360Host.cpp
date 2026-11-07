@@ -5,6 +5,7 @@
 #include "drivers/shared/xinput_host.h"
 #include <storagemanager.h>
 #include <cmath>
+#include "pico/platform.h"
 
 bool Xbox360Host::match(uint8_t dev_addr, uint8_t instance, uint16_t vendor_id, uint16_t product_id, uint8_t controller_type) {    
     if ( controller_type == 1 ) {    
@@ -255,15 +256,24 @@ static inline void apply_radial_deadzone(int16_t in_x, int16_t in_y, int16_t dea
         out_y = in_y;
         return;
     }
-    const float fx = static_cast<float>(in_x);
-    const float fy = static_cast<float>(in_y);
-    const float mag = sqrtf(fx * fx + fy * fy);
-    const float dz = static_cast<float>(deadzone);
-    if (mag <= dz) {
+
+    const int32_t x = in_x;
+    const int32_t y = in_y;
+    const uint64_t r2 = static_cast<uint64_t>(static_cast<int64_t>(x) * x) +
+                        static_cast<uint64_t>(static_cast<int64_t>(y) * y);
+    const uint64_t dz2 = static_cast<uint64_t>(deadzone) * static_cast<uint64_t>(deadzone);
+
+    // Fast integer rejection: if inside radial deadzone, avoid sqrtf and float scaling completely
+    if (r2 <= dz2) {
         out_x = 0;
         out_y = 0;
         return;
     }
+
+    const float fx = static_cast<float>(in_x);
+    const float fy = static_cast<float>(in_y);
+    const float mag = sqrtf(static_cast<float>(r2));
+    const float dz = static_cast<float>(deadzone);
     const float scale = ((mag - dz) / (32767.0f - dz)) * (32767.0f / mag);
     int32_t sx = static_cast<int32_t>(lroundf(fx * scale));
     int32_t sy = static_cast<int32_t>(lroundf(fy * scale));
@@ -276,7 +286,7 @@ static inline void apply_radial_deadzone(int16_t in_x, int16_t in_y, int16_t dea
 }
 #endif
 
-void Xbox360Host::process(uint8_t const* report, uint16_t len) {
+void __not_in_flash_func(Xbox360Host::process)(uint8_t const* report, uint16_t len) {
     XInputReport controller_report;
 
     if (len < sizeof(XInputReport) || report[0] != 0x00 || report[1] != sizeof(XInputReport)) {
@@ -339,7 +349,7 @@ void Xbox360Host::process(uint8_t const* report, uint16_t len) {
 }
 
 
-void Xbox360Host::gamepad(Gamepad * gamepad) {
+void __not_in_flash_func(Xbox360Host::gamepad)(Gamepad * gamepad) {
     // Override the Gamepad
     gamepad->hasAnalogTriggers   = true;
     gamepad->hasLeftAnalogStick  = true;

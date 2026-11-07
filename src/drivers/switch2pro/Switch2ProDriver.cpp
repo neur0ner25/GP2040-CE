@@ -702,7 +702,17 @@ void Switch2ProDriver::initialize() {
     };
 }
 
-static void packStick(uint8_t *out, uint16_t x16, uint16_t y16) {
+struct PackedStickCache {
+    uint16_t last_x = 0xFFFF;
+    uint16_t last_y = 0xFFFF;
+    uint8_t bytes[3] = {};
+};
+
+static PackedStickCache leftStickCache;
+static PackedStickCache rightStickCache;
+static PackedStickCache joyConStickCache;
+
+static void __not_in_flash_func(packStick)(uint8_t *out, uint16_t x16, uint16_t y16) {
     constexpr int32_t CENTER = 2048;
     constexpr int32_t RANGE  = 1600;
 
@@ -750,13 +760,24 @@ static void packStick(uint8_t *out, uint16_t x16, uint16_t y16) {
     out[2] = (y >> 4) & 0xFF;
 }
 
+static inline void packStickCached(PackedStickCache& cache, uint8_t *out, uint16_t x16, uint16_t y16) {
+    if (x16 != cache.last_x || y16 != cache.last_y) {
+        packStick(cache.bytes, x16, y16);
+        cache.last_x = x16;
+        cache.last_y = y16;
+    }
+    out[0] = cache.bytes[0];
+    out[1] = cache.bytes[1];
+    out[2] = cache.bytes[2];
+}
+
 bool Switch2ProDriver::process(Gamepad * gamepad) {
     Gamepad * processedGamepad = Storage::getInstance().GetProcessedGamepad();
     processedGamepad->auxState.playerID.active = reportsEnabled;
     processedGamepad->auxState.playerID.ledValue = playerLedMask;
     processedGamepad->auxState.playerID.value = playerLedMask;
     const uint32_t now = to_ms_since_boot(get_absolute_time());
-    if (userCalibDirty && !cmdReplyPending && (uint32_t)(now - lastCalibActivityMs) >= 500) {
+    if (userCalibDirty && !cmdReplyPending && (uint32_t)(now - lastCalibActivityMs) >= 1000 && gamepad->state.buttons == 0) {
         userCalibDirty = false;
         GamepadOptions & options = Storage::getInstance().getGamepadOptions();
         if (!options.has_switch2ProUserCalib ||
@@ -803,6 +824,11 @@ bool Switch2ProDriver::process(Gamepad * gamepad) {
         return false;
     }
 
+    // Do not spend CPU cycles constructing reports or packing sticks while USB IN endpoint is busy
+    if (!tud_hid_n_ready(0)) {
+        return false;
+    }
+
     uint8_t b0 = 0, b1 = 0, b2 = 0;
     if (gamepad->pressedB1()) b0 |= SWITCH2_PRO_MASK_B;
     if (gamepad->pressedB2()) b0 |= SWITCH2_PRO_MASK_A;
@@ -838,8 +864,8 @@ bool Switch2ProDriver::process(Gamepad * gamepad) {
     inputReport[2] = b0;
     inputReport[3] = b1;
     inputReport[4] = b2;
-    packStick(&inputReport[5], gamepad->state.lx, gamepad->state.ly);
-    packStick(&inputReport[8], gamepad->state.rx, gamepad->state.ry);
+    packStickCached(leftStickCache, &inputReport[5], gamepad->state.lx, gamepad->state.ly);
+    packStickCached(rightStickCache, &inputReport[8], gamepad->state.rx, gamepad->state.ry);
     inputReport[11] = 0x38;
     if (gamecube) {
         inputReport[12] = gamepad->pressedL2() ? 0xFF : (gamepad->hasAnalogTriggers ? gamepad->state.lt : 0x00);
@@ -882,9 +908,9 @@ bool Switch2ProDriver::process(Gamepad * gamepad) {
         inputReport[3] = j1;
         inputReport[4] = 0x07;
         if (left)
-            packStick(&inputReport[5], GAMEPAD_JOYSTICK_MAX - y, x);
+            packStickCached(joyConStickCache, &inputReport[5], GAMEPAD_JOYSTICK_MAX - y, x);
         else
-            packStick(&inputReport[5], y, GAMEPAD_JOYSTICK_MAX - x);
+            packStickCached(joyConStickCache, &inputReport[5], y, GAMEPAD_JOYSTICK_MAX - x);
     }
     const bool changed = memcmp(&inputReport[2], &lastSentState[0], sizeof(lastSentState)) != 0;
     if (!changed && (now - lastSentMs) < SWITCH2_PRO_KEEPALIVE_MS)

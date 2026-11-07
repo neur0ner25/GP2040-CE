@@ -48,8 +48,19 @@ void BootselButtonAddon::setup() {
 }
 
 void BootselButtonAddon::preprocess() {
-	Gamepad * gamepad = Storage::getInstance().GetGamepad();
-	if (isBootselPressed()) {
+	static uint32_t lastCheck = 0;
+	static bool cachedPressed = false;
+	uint32_t now = getMillis();
+
+	// Throttle hardware sampling to every 15 ms:
+	// Prevents disabling interrupts and stalling CPU for 1000 cycles on every loop pass
+	if ((now - lastCheck) >= 15) {
+		cachedPressed = isBootselPressed();
+		lastCheck = now;
+	}
+
+	if (cachedPressed) {
+		Gamepad * gamepad = Storage::getInstance().GetGamepad();
 		switch (bootselButtonMap) {
 			case (GAMEPAD_MASK_DU):
 				gamepad->state.dpad |= GAMEPAD_MASK_UP;
